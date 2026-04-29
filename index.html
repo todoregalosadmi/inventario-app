@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Inventario</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+  <!-- AUTH SCREEN -->
+  <div id="auth-screen" class="auth-screen">
+    <div class="auth-card">
+      <div class="auth-logo">
+        <span class="logo-icon">▦</span>
+        <span class="logo-text">Inventario</span>
+      </div>
+      <div id="auth-error" class="auth-error hidden"></div>
+
+      <div id="form-login">
+        <h2 class="auth-title">Iniciar sesión</h2>
+        <div class="field"><label>Email</label><input type="email" id="login-email" placeholder="tu@email.com" /></div>
+        <div class="field"><label>Contraseña</label><input type="password" id="login-pass" placeholder="••••••••" /></div>
+        <button class="btn-auth" onclick="doLogin()">Entrar</button>
+        <p class="auth-switch">¿No tenés cuenta? <a href="#" onclick="showRegister()">Registrarse</a></p>
+      </div>
+
+      <div id="form-register" class="hidden">
+        <h2 class="auth-title">Crear cuenta</h2>
+        <div class="field"><label>Nombre</label><input type="text" id="reg-name" placeholder="Tu nombre" /></div>
+        <div class="field"><label>Email</label><input type="email" id="reg-email" placeholder="tu@email.com" /></div>
+        <div class="field"><label>Contraseña</label><input type="password" id="reg-pass" placeholder="Mínimo 6 caracteres" /></div>
+        <button class="btn-auth" onclick="doRegister()">Crear cuenta</button>
+        <p class="auth-switch">¿Ya tenés cuenta? <a href="#" onclick="showLogin()">Iniciar sesión</a></p>
+      </div>
+    </div>
+  </div>
+
+  <!-- MAIN APP -->
+  <div id="app" class="app hidden">
+    <nav class="navbar">
+      <div class="nav-left">
+        <span class="logo-icon">▦</span>
+        <span class="logo-text">Inventario</span>
+      </div>
+      <div class="nav-right">
+        <span id="nav-user" class="nav-user"></span>
+        <button class="btn-logout" onclick="doLogout()">Salir</button>
+      </div>
+    </nav>
+
+    <main class="main">
+      <!-- METRICS -->
+      <div class="metrics-grid">
+        <div class="metric-card">
+          <div class="metric-label">Total productos</div>
+          <div class="metric-value" id="m-total">—</div>
+        </div>
+        <div class="metric-card">
+          <div class="metric-label">Valor en stock</div>
+          <div class="metric-value" id="m-valor">—</div>
+        </div>
+        <div class="metric-card warn">
+          <div class="metric-label">Stock bajo</div>
+          <div class="metric-value" id="m-low">—</div>
+        </div>
+        <div class="metric-card danger">
+          <div class="metric-label">Sin stock</div>
+          <div class="metric-value" id="m-out">—</div>
+        </div>
+      </div>
+
+      <!-- TOOLBAR -->
+      <div class="toolbar">
+        <div class="toolbar-left">
+          <input type="text" id="search" placeholder="Buscar producto..." oninput="renderAll()" />
+          <select id="filterCat" onchange="renderAll()"></select>
+        </div>
+        <div class="toolbar-right">
+          <button class="btn-outline" onclick="exportExcel()">↓ Excel</button>
+          <button class="btn-primary" onclick="openProductModal()">+ Producto</button>
+        </div>
+      </div>
+
+      <!-- TABS -->
+      <div class="tabs">
+        <button class="tab active" onclick="switchTab('productos', this)">Productos</button>
+        <button class="tab" onclick="switchTab('alertas', this)">Alertas <span id="alert-badge" class="badge-tab hidden"></span></button>
+        <button class="tab" onclick="switchTab('movimientos', this)">Movimientos</button>
+      </div>
+
+      <!-- PRODUCTS TABLE -->
+      <div id="view-productos" class="view active">
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th style="width:52px"></th>
+                <th>Producto</th>
+                <th>Categoría</th>
+                <th>Stock</th>
+                <th>Mínimo</th>
+                <th>Precio</th>
+                <th>Estado</th>
+                <th>Acciones</th>
+              </tr>
+            </thead>
+            <tbody id="tbody-products"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- ALERTS VIEW -->
+      <div id="view-alertas" class="view hidden">
+        <div id="alerts-list"></div>
+      </div>
+
+      <!-- MOVEMENTS VIEW -->
+      <div id="view-movimientos" class="view hidden">
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Fecha</th>
+                <th>Producto</th>
+                <th>Tipo</th>
+                <th>Cant.</th>
+                <th>Ant.</th>
+                <th>Nuevo</th>
+                <th>Usuario</th>
+                <th>Nota</th>
+              </tr>
+            </thead>
+            <tbody id="tbody-mov"></tbody>
+          </table>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <!-- PRODUCT MODAL -->
+  <div id="product-modal" class="modal-overlay hidden" onclick="closeIfOverlay(event,'product-modal')">
+    <div class="modal">
+      <div class="modal-header">
+        <span class="modal-title" id="product-modal-title">Agregar producto</span>
+        <button class="modal-close" onclick="closeModal('product-modal')">✕</button>
+      </div>
+      <div class="modal-body">
+        <input type="hidden" id="edit-id" />
+
+        <div class="photo-area" onclick="document.getElementById('f-foto').click()">
+          <img id="photo-preview" class="photo-preview hidden" alt="preview" />
+          <div id="photo-placeholder" class="photo-placeholder">
+            <span class="photo-icon">⊕</span>
+            <span>Subir foto</span>
+          </div>
+          <input type="file" id="f-foto" accept="image/*" style="display:none" onchange="handlePhotoUpload(event)" />
+        </div>
+
+        <div class="form-grid-1">
+          <div class="field"><label>Nombre del producto *</label><input type="text" id="f-nombre" placeholder="Ej: Tornillo hex 5mm" /></div>
+        </div>
+        <div class="form-grid-2">
+          <div class="field"><label>Categoría</label><input type="text" id="f-cat" placeholder="Ej: Ferretería" /></div>
+          <div class="field"><label>Proveedor</label><input type="text" id="f-prov" placeholder="Nombre del proveedor" /></div>
+        </div>
+        <div class="form-grid-3">
+          <div class="field"><label>Stock actual</label><input type="number" id="f-stock" placeholder="0" min="0" /></div>
+          <div class="field"><label>Stock mínimo</label><input type="number" id="f-min" placeholder="5" min="0" /></div>
+          <div class="field"><label>Precio ($)</label><input type="number" id="f-precio" placeholder="0.00" step="0.01" min="0" /></div>
+        </div>
+        <div class="form-grid-2">
+          <div class="field"><label>Unidad</label><input type="text" id="f-unidad" placeholder="unidad / kg / lt" /></div>
+          <div class="field"><label>Código / SKU</label><input type="text" id="f-sku" placeholder="Ej: TRN-001" /></div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn-outline" onclick="closeModal('product-modal')">Cancelar</button>
+        <button class="btn-primary" onclick="saveProduct()">Guardar producto</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MOVEMENT MODAL -->
+  <div id="mov-modal" class="modal-overlay hidden" onclick="closeIfOverlay(event,'mov-modal')">
+    <div class="modal modal-sm">
+      <div class="modal-header">
+        <span class="modal-title" id="mov-modal-title">Registrar movimiento</span>
+        <button class="modal-close" onclick="closeModal('mov-modal')">✕</button>
+      </div>
+      <div class="modal-body">
+        <input type="hidden" id="mov-pid" />
+        <div class="field"><label>Tipo de movimiento</label>
+          <select id="mov-tipo">
+            <option value="entrada">Entrada — compra / recepción</option>
+            <option value="salida">Salida — venta / uso</option>
+            <option value="ajuste">Ajuste de inventario</option>
+          </select>
+        </div>
+        <div class="field"><label>Cantidad</label><input type="number" id="mov-cant" min="1" placeholder="0" /></div>
+        <div class="field"><label>Nota (opcional)</label><input type="text" id="mov-nota" placeholder="Ej: Recepción proveedor #045" /></div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn-outline" onclick="closeModal('mov-modal')">Cancelar</button>
+        <button class="btn-primary" onclick="saveMovimiento()">Registrar</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- TOAST -->
+  <div id="toast" class="toast hidden"></div>
+
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
