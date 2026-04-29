@@ -1,5 +1,5 @@
 // ── CONFIG — reemplazá con tus credenciales de Supabase ──
-const SUPABASE_URL = 'https://wcjyycgokxjlqznkaquf.supabase.co/rest/v1/';
+const SUPABASE_URL = 'https://wcjyycgokxjlqznkaquf.supabase.co';
 const SUPABASE_KEY = 'sb_publishable_5DB4QScSv_f-3E4zq5Pxdg_2HuPahNv';
 
 // ── Init ──
