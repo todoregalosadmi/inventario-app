@@ -2,24 +2,21 @@
 const SUPABASE_URL = 'https://wcjyycgokxjlqznkaquf.supabase.co';
 const SUPABASE_KEY = 'sb_publishable_5DB4QScSv_f-3E4zq5Pxdg_2HuPahNv';
 
-// ── Init ──
 const { createClient } = supabase;
 const db = createClient(SUPABASE_URL, SUPABASE_KEY);
 
 let currentUser = null;
 let pendingPhotoFile = null;
+let cachedProducts = [];
+let cachedMovements = [];
 
 // ══════════════════════════════════
 // AUTH
 // ══════════════════════════════════
 async function checkSession() {
   const { data: { session } } = await db.auth.getSession();
-  if (session) {
-    currentUser = session.user;
-    showApp();
-  } else {
-    showAuth();
-  }
+  if (session) { currentUser = session.user; showApp(); }
+  else showAuth();
 }
 
 async function doLogin() {
@@ -56,7 +53,7 @@ function showApp() {
   document.getElementById('auth-screen').classList.add('hidden');
   document.getElementById('app').classList.remove('hidden');
   const name = currentUser.user_metadata?.name || currentUser.email;
-  document.getElementById('nav-user').textContent = name;
+  document.getElementById('nav-user').textContent = '👤 ' + name;
   loadAll();
 }
 
@@ -81,54 +78,43 @@ function showAuthError(msg, isInfo = false) {
   const el = document.getElementById('auth-error');
   el.textContent = msg;
   el.classList.remove('hidden');
-  if (isInfo) el.style.background = 'rgba(59,130,246,0.1)';
+  el.style.background = isInfo ? 'rgba(59,130,246,0.12)' : '';
+  el.style.color = isInfo ? '#93c5fd' : '';
 }
 
 function clearAuthError() {
-  const el = document.getElementById('auth-error');
-  el.classList.add('hidden');
-  el.style.background = '';
+  document.getElementById('auth-error').classList.add('hidden');
 }
 
 // ══════════════════════════════════
-// LOAD DATA
+// CARGA DE DATOS
 // ══════════════════════════════════
 async function loadAll() {
-  renderAll();
+  const [products, movements] = await Promise.all([fetchProducts(), fetchMovements()]);
+  cachedProducts  = products;
+  cachedMovements = movements;
+  renderMetrics(products);
+  renderCatFilter(products);
+  renderProducts(products);
+  renderAlerts(products);
+  renderMovements(movements);
+  populateInformeSelect(products);
+}
+
+async function renderAll() {
+  renderCatFilter(cachedProducts);
+  renderProducts(cachedProducts);
+  renderAlerts(cachedProducts);
+  renderMovements(cachedMovements);
 }
 
 // ══════════════════════════════════
-// PRODUCTS
+// PRODUCTOS
 // ══════════════════════════════════
 async function fetchProducts() {
   const { data, error } = await db.from('products').select('*').order('nombre', { ascending: true });
   if (error) { showToast('Error cargando productos', 'error'); return []; }
   return data;
-}
-
-async function renderAll() {
-  const [products, movements] = await Promise.all([fetchProducts(), fetchMovements()]);
-  renderMetrics(products);
-  renderCatFilter(products);
-  renderProducts(products);
-  renderAlerts(products);
-  renderMovements(movements, products);
-}
-
-function renderMetrics(products) {
-  const total = products.length;
-  const valor = products.reduce((a, p) => a + p.stock * (p.precio || 0), 0);
-  const low   = products.filter(p => p.stock > 0 && p.stock <= p.stock_minimo).length;
-  const out   = products.filter(p => p.stock === 0).length;
-  document.getElementById('m-total').textContent = total;
-  document.getElementById('m-valor').textContent = '$' + valor.toLocaleString('es-AR', { minimumFractionDigits: 0, maximumFractionDigits: 0 });
-  document.getElementById('m-low').textContent = low;
-  document.getElementById('m-out').textContent = out;
-
-  const badge = document.getElementById('alert-badge');
-  const count = low + out;
-  if (count > 0) { badge.textContent = count; badge.classList.remove('hidden'); }
-  else badge.classList.add('hidden');
 }
 
 function getStatus(p) {
@@ -139,15 +125,32 @@ function getStatus(p) {
 
 function statusBadge(p) {
   const s = getStatus(p);
-  if (s === 'out') return '<span class="badge badge-out">Sin stock</span>';
-  if (s === 'low') return '<span class="badge badge-low">Stock bajo</span>';
-  return '<span class="badge badge-ok">Normal</span>';
+  if (s === 'out') return '<span class="badge badge-out">🚨 Sin stock</span>';
+  if (s === 'low') return '<span class="badge badge-low">⚠️ Stock bajo</span>';
+  return '<span class="badge badge-ok">✅ Normal</span>';
+}
+
+function renderMetrics(products) {
+  const total = products.length;
+  const valor = products.reduce((a, p) => a + p.stock * (p.precio || 0), 0);
+  const low   = products.filter(p => p.stock > 0 && p.stock_minimo > 0 && p.stock <= p.stock_minimo).length;
+  const out   = products.filter(p => p.stock === 0).length;
+
+  document.getElementById('m-total').textContent = total;
+  document.getElementById('m-valor').textContent = '$' + valor.toLocaleString('es-AR', { minimumFractionDigits: 0, maximumFractionDigits: 0 });
+  document.getElementById('m-low').textContent   = low;
+  document.getElementById('m-out').textContent   = out;
+
+  const badge = document.getElementById('alert-badge');
+  const count = low + out;
+  if (count > 0) { badge.textContent = count; badge.classList.remove('hidden'); }
+  else badge.classList.add('hidden');
 }
 
 function renderCatFilter(products) {
-  const sel = document.getElementById('filterCat');
+  const sel     = document.getElementById('filterCat');
   const current = sel.value;
-  const cats = [...new Set(products.map(p => p.categoria).filter(Boolean))].sort();
+  const cats    = [...new Set(products.map(p => p.categoria).filter(Boolean))].sort();
   sel.innerHTML = '<option value="">Todas las categorías</option>' +
     cats.map(c => `<option value="${c}"${c === current ? ' selected' : ''}>${c}</option>`).join('');
 }
@@ -156,35 +159,35 @@ function renderProducts(products) {
   const q   = document.getElementById('search').value.toLowerCase();
   const cat = document.getElementById('filterCat').value;
   const filtered = products.filter(p =>
-    (!q || p.nombre.toLowerCase().includes(q) || (p.proveedor || '').toLowerCase().includes(q) || (p.sku || '').toLowerCase().includes(q)) &&
+    (!q   || p.nombre.toLowerCase().includes(q) || (p.proveedor||'').toLowerCase().includes(q) || (p.sku||'').toLowerCase().includes(q)) &&
     (!cat || p.categoria === cat)
   );
   const tbody = document.getElementById('tbody-products');
   if (!filtered.length) {
-    tbody.innerHTML = `<tr><td colspan="8"><div class="empty-state"><span class="empty-icon">🔍</span>Sin resultados</div></td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="8"><div class="empty-state"><span class="empty-icon">🔍</span>Sin resultados para tu búsqueda</div></td></tr>`;
     return;
   }
   tbody.innerHTML = filtered.map(p => {
     const thumb = p.foto_url
-      ? `<img src="${p.foto_url}" class="prod-thumb" alt="${p.nombre}" />`
-      : `<div class="prod-placeholder">📦</div>`;
+      ? `<img src="${p.foto_url}" class="prod-thumb" alt="Foto de ${p.nombre}" />`
+      : `<div class="prod-placeholder" aria-hidden="true">📦</div>`;
     return `<tr>
       <td>${thumb}</td>
       <td>
         <div class="prod-name">${p.nombre}</div>
-        ${p.proveedor ? `<div class="prod-prov">${p.proveedor}</div>` : ''}
-        ${p.sku ? `<div class="prod-sku">${p.sku}</div>` : ''}
+        ${p.proveedor ? `<div class="prod-prov">🏭 ${p.proveedor}</div>` : ''}
+        ${p.sku       ? `<div class="prod-sku">${p.sku}</div>` : ''}
       </td>
       <td>${p.categoria || '—'}</td>
-      <td>${p.stock} ${p.unidad || ''}</td>
-      <td>${p.stock_minimo || 0}</td>
-      <td>$${(p.precio || 0).toFixed(2)}</td>
+      <td><strong style="font-size:17px;font-family:'JetBrains Mono',monospace">${p.stock}</strong> <span style="color:var(--text3);font-size:13px">${p.unidad||''}</span></td>
+      <td style="color:var(--text3)">${p.stock_minimo || 0}</td>
+      <td style="font-family:'JetBrains Mono',monospace">$${(p.precio||0).toFixed(2)}</td>
       <td>${statusBadge(p)}</td>
       <td>
         <div class="actions">
-          <button class="btn-icon" onclick="openMovModal('${p.id}', '${escapeHtml(p.nombre)}')" title="Registrar movimiento">±</button>
-          <button class="btn-icon" onclick="openEditModal('${p.id}')" title="Editar">✎</button>
-          <button class="btn-icon danger" onclick="deleteProduct('${p.id}', '${escapeHtml(p.nombre)}')" title="Eliminar">✕</button>
+          <button class="btn-icon" onclick="openMovModal('${p.id}','${escHtml(p.nombre)}')" title="Registrar movimiento" aria-label="Registrar movimiento para ${p.nombre}">±</button>
+          <button class="btn-icon" onclick="openEditModal('${p.id}')" title="Editar" aria-label="Editar ${p.nombre}">✎</button>
+          <button class="btn-icon danger" onclick="deleteProduct('${p.id}','${escHtml(p.nombre)}')" title="Eliminar" aria-label="Eliminar ${p.nombre}">✕</button>
         </div>
       </td>
     </tr>`;
@@ -192,58 +195,59 @@ function renderProducts(products) {
 }
 
 function renderAlerts(products) {
-  const el = document.getElementById('alerts-list');
+  const el     = document.getElementById('alerts-list');
   const alerts = products.filter(p => getStatus(p) !== 'ok');
   if (!alerts.length) {
-    el.innerHTML = `<div class="empty-state"><span class="empty-icon">✓</span>Sin alertas activas. ¡Todo el stock está en orden!</div>`;
+    el.innerHTML = `<div class="empty-state"><span class="empty-icon">✅</span>Sin alertas activas. ¡Todo el stock está en orden!</div>`;
     return;
   }
   el.innerHTML = alerts.map(p => {
-    const s = getStatus(p);
-    const msg = s === 'out' ? 'Sin stock — requiere reposición urgente' : `Stock bajo: ${p.stock} ${p.unidad || ''} (mínimo: ${p.stock_minimo})`;
-    return `<div class="alert-item ${s}">
+    const s   = getStatus(p);
+    const msg = s === 'out'
+      ? '🚨 Sin stock — requiere reposición urgente'
+      : `⚠️ Stock bajo: ${p.stock} ${p.unidad||''} (mínimo: ${p.stock_minimo})`;
+    return `<div class="alert-item ${s}" role="alert">
       <div>
         <div class="alert-name">${p.nombre}</div>
         <div class="alert-sub">${msg}</div>
       </div>
-      <button class="btn-outline" onclick="openMovModal('${p.id}', '${escapeHtml(p.nombre)}')">Reponer →</button>
+      <button class="btn-primary" onclick="openMovModal('${p.id}','${escHtml(p.nombre)}')" aria-label="Reponer stock de ${p.nombre}">Reponer →</button>
     </div>`;
   }).join('');
 }
 
 // ══════════════════════════════════
-// PRODUCT MODAL
+// MODAL PRODUCTO
 // ══════════════════════════════════
 function openProductModal() {
   document.getElementById('edit-id').value = '';
   document.getElementById('product-modal-title').textContent = 'Agregar producto';
-  ['f-nombre','f-cat','f-prov','f-stock','f-min','f-precio','f-unidad','f-sku'].forEach(id => {
-    document.getElementById(id).value = '';
-  });
+  ['f-nombre','f-cat','f-prov','f-stock','f-min','f-precio','f-unidad','f-sku'].forEach(id => document.getElementById(id).value = '');
   pendingPhotoFile = null;
   document.getElementById('photo-preview').classList.add('hidden');
   document.getElementById('photo-placeholder').classList.remove('hidden');
   document.getElementById('product-modal').classList.remove('hidden');
+  document.getElementById('f-nombre').focus();
 }
 
 async function openEditModal(id) {
-  const { data: p } = await db.from('products').select('*').eq('id', id).single();
+  const p = cachedProducts.find(x => x.id === id);
   if (!p) return;
-  document.getElementById('edit-id').value = p.id;
+  document.getElementById('edit-id').value    = p.id;
   document.getElementById('product-modal-title').textContent = 'Editar producto';
-  document.getElementById('f-nombre').value = p.nombre || '';
-  document.getElementById('f-cat').value = p.categoria || '';
-  document.getElementById('f-prov').value = p.proveedor || '';
-  document.getElementById('f-stock').value = p.stock || 0;
-  document.getElementById('f-min').value = p.stock_minimo || 0;
-  document.getElementById('f-precio').value = p.precio || 0;
-  document.getElementById('f-unidad').value = p.unidad || '';
-  document.getElementById('f-sku').value = p.sku || '';
+  document.getElementById('f-nombre').value  = p.nombre || '';
+  document.getElementById('f-cat').value     = p.categoria || '';
+  document.getElementById('f-prov').value    = p.proveedor || '';
+  document.getElementById('f-stock').value   = p.stock || 0;
+  document.getElementById('f-min').value     = p.stock_minimo || 0;
+  document.getElementById('f-precio').value  = p.precio || 0;
+  document.getElementById('f-unidad').value  = p.unidad || '';
+  document.getElementById('f-sku').value     = p.sku || '';
   pendingPhotoFile = null;
   if (p.foto_url) {
-    const preview = document.getElementById('photo-preview');
-    preview.src = p.foto_url;
-    preview.classList.remove('hidden');
+    const prev = document.getElementById('photo-preview');
+    prev.src = p.foto_url;
+    prev.classList.remove('hidden');
     document.getElementById('photo-placeholder').classList.add('hidden');
   } else {
     document.getElementById('photo-preview').classList.add('hidden');
@@ -255,21 +259,21 @@ async function openEditModal(id) {
 function handlePhotoUpload(event) {
   const file = event.target.files[0];
   if (!file) return;
-  if (file.size > 2 * 1024 * 1024) { showToast('La foto debe ser menor a 2MB', 'error'); return; }
+  if (file.size > 3 * 1024 * 1024) { showToast('La foto debe ser menor a 3MB', 'error'); return; }
   pendingPhotoFile = file;
   const reader = new FileReader();
   reader.onload = e => {
-    const preview = document.getElementById('photo-preview');
-    preview.src = e.target.result;
-    preview.classList.remove('hidden');
+    const prev = document.getElementById('photo-preview');
+    prev.src = e.target.result;
+    prev.classList.remove('hidden');
     document.getElementById('photo-placeholder').classList.add('hidden');
   };
   reader.readAsDataURL(file);
 }
 
 async function uploadPhoto(file) {
-  const ext = file.name.split('.').pop();
-  const path = `products/${Date.now()}.${ext}`;
+  const ext  = file.name.split('.').pop();
+  const path = `products/${Date.now()}_${Math.random().toString(36).slice(2)}.${ext}`;
   const { error } = await db.storage.from('fotos').upload(path, file, { upsert: true });
   if (error) { showToast('Error subiendo foto', 'error'); return null; }
   const { data } = db.storage.from('fotos').getPublicUrl(path);
@@ -281,24 +285,24 @@ async function saveProduct() {
   if (!nombre) { showToast('El nombre es requerido', 'error'); return; }
 
   const editId = document.getElementById('edit-id').value;
-
   let foto_url = null;
+
   if (pendingPhotoFile) {
     foto_url = await uploadPhoto(pendingPhotoFile);
   } else if (editId) {
-    const { data: existing } = await db.from('products').select('foto_url').eq('id', editId).single();
+    const existing = cachedProducts.find(p => p.id === editId);
     foto_url = existing?.foto_url || null;
   }
 
   const payload = {
     nombre,
-    categoria:    document.getElementById('f-cat').value.trim() || 'General',
-    proveedor:    document.getElementById('f-prov').value.trim() || null,
-    stock:        parseInt(document.getElementById('f-stock').value) || 0,
-    stock_minimo: parseInt(document.getElementById('f-min').value) || 0,
+    categoria:    document.getElementById('f-cat').value.trim()   || 'General',
+    proveedor:    document.getElementById('f-prov').value.trim()   || null,
+    stock:        parseInt(document.getElementById('f-stock').value)   || 0,
+    stock_minimo: parseInt(document.getElementById('f-min').value)     || 0,
     precio:       parseFloat(document.getElementById('f-precio').value) || 0,
     unidad:       document.getElementById('f-unidad').value.trim() || 'unidad',
-    sku:          document.getElementById('f-sku').value.trim() || null,
+    sku:          document.getElementById('f-sku').value.trim()    || null,
     foto_url,
     updated_by:   currentUser.email,
   };
@@ -306,15 +310,15 @@ async function saveProduct() {
   if (editId) {
     const { error } = await db.from('products').update(payload).eq('id', editId);
     if (error) { showToast('Error al guardar', 'error'); return; }
-    showToast('Producto actualizado', 'success');
+    showToast('✅ Producto actualizado', 'success');
   } else {
     const { error } = await db.from('products').insert({ ...payload, created_by: currentUser.email });
     if (error) { showToast('Error al guardar', 'error'); return; }
-    showToast('Producto agregado', 'success');
+    showToast('✅ Producto agregado', 'success');
   }
 
   closeModal('product-modal');
-  renderAll();
+  await loadAll();
 }
 
 async function deleteProduct(id, nombre) {
@@ -322,25 +326,30 @@ async function deleteProduct(id, nombre) {
   const { error } = await db.from('products').delete().eq('id', id);
   if (error) { showToast('Error al eliminar', 'error'); return; }
   showToast('Producto eliminado');
-  renderAll();
+  await loadAll();
 }
 
 // ══════════════════════════════════
-// MOVEMENTS
+// MOVIMIENTOS
 // ══════════════════════════════════
 async function fetchMovements() {
-  const { data, error } = await db.from('movements').select('*').order('created_at', { ascending: false }).limit(200);
+  const { data, error } = await db
+    .from('movements')
+    .select('*')
+    .order('created_at', { ascending: false })
+    .limit(500);
   if (error) return [];
   return data;
 }
 
 function openMovModal(pid, nombre) {
-  document.getElementById('mov-pid').value = pid;
+  document.getElementById('mov-pid').value            = pid;
   document.getElementById('mov-modal-title').textContent = nombre;
-  document.getElementById('mov-cant').value = '';
-  document.getElementById('mov-nota').value = '';
-  document.getElementById('mov-tipo').value = 'entrada';
+  document.getElementById('mov-cant').value           = '';
+  document.getElementById('mov-nota').value           = '';
+  document.getElementById('mov-tipo').value           = 'entrada';
   document.getElementById('mov-modal').classList.remove('hidden');
+  setTimeout(() => document.getElementById('mov-cant').focus(), 100);
 }
 
 async function saveMovimiento() {
@@ -351,16 +360,18 @@ async function saveMovimiento() {
 
   if (!cant || cant <= 0) { showToast('Ingresá una cantidad válida', 'error'); return; }
 
-  const { data: p } = await db.from('products').select('*').eq('id', pid).single();
+  const p = cachedProducts.find(x => x.id === pid);
   if (!p) return;
 
   const prev = p.stock;
   let nuevo;
-  if (tipo === 'entrada') nuevo = prev + cant;
-  else if (tipo === 'salida') nuevo = Math.max(0, prev - cant);
-  else nuevo = cant;
+  if      (tipo === 'entrada') nuevo = prev + cant;
+  else if (tipo === 'salida')  nuevo = Math.max(0, prev - cant);
+  else                         nuevo = cant; // ajuste
 
-  const { error: pErr } = await db.from('products').update({ stock: nuevo, updated_by: currentUser.email }).eq('id', pid);
+  const { error: pErr } = await db.from('products')
+    .update({ stock: nuevo, updated_by: currentUser.email })
+    .eq('id', pid);
   if (pErr) { showToast('Error al actualizar stock', 'error'); return; }
 
   await db.from('movements').insert({
@@ -376,103 +387,221 @@ async function saveMovimiento() {
   });
 
   closeModal('mov-modal');
-  showToast('Movimiento registrado', 'success');
-  renderAll();
+  showToast('✅ Movimiento registrado', 'success');
+  await loadAll();
 }
 
-function renderMovements(movements, products) {
+function renderMovements(movements) {
   const tbody = document.getElementById('tbody-mov');
   if (!movements.length) {
     tbody.innerHTML = `<tr><td colspan="8"><div class="empty-state"><span class="empty-icon">📋</span>No hay movimientos aún</div></td></tr>`;
     return;
   }
   tbody.innerHTML = movements.map(m => {
-    const fecha = new Date(m.created_at).toLocaleString('es-AR', { dateStyle: 'short', timeStyle: 'short' });
+    const dt    = new Date(m.created_at);
+    const fecha = dt.toLocaleDateString('es-AR',  { day:'2-digit', month:'2-digit', year:'numeric' });
+    const hora  = dt.toLocaleTimeString('es-AR',  { hour:'2-digit', minute:'2-digit' });
     const badgeClass = m.tipo === 'entrada' ? 'mov-in' : m.tipo === 'salida' ? 'mov-out' : 'mov-adj';
+    const icon       = m.tipo === 'entrada' ? '✅' : m.tipo === 'salida' ? '📤' : '🔧';
     const cantDisplay = m.tipo === 'entrada' ? `+${m.cantidad}` : m.tipo === 'salida' ? `-${m.cantidad}` : `=${m.cantidad}`;
     return `<tr>
-      <td style="font-size:12px;color:var(--text3);white-space:nowrap">${fecha}</td>
-      <td>${m.product_name}</td>
-      <td><span class="badge ${badgeClass}">${m.tipo}</span></td>
-      <td style="font-family:'DM Mono',monospace">${cantDisplay}</td>
+      <td style="white-space:nowrap;font-size:14px">${fecha}</td>
+      <td style="font-weight:600">${m.product_name}</td>
+      <td><span class="badge ${badgeClass}">${icon} ${m.tipo}</span></td>
+      <td style="font-family:'JetBrains Mono',monospace;font-weight:700;font-size:16px">${cantDisplay}</td>
       <td style="color:var(--text3)">${m.stock_prev}</td>
-      <td>${m.stock_nuevo}</td>
-      <td style="font-size:12px;color:var(--text3)">${m.user_name || m.user_email}</td>
-      <td style="font-size:12px;color:var(--text3)">${m.nota || ''}</td>
+      <td style="font-weight:600">${m.stock_nuevo}</td>
+      <td style="font-size:14px;color:var(--text3)">${m.user_name || m.user_email}</td>
+      <td style="font-size:14px;color:var(--text3)">${m.nota || ''}</td>
     </tr>`;
   }).join('');
 }
 
 // ══════════════════════════════════
-// EXCEL EXPORT
+// INFORME POR PRODUCTO
+// ══════════════════════════════════
+function populateInformeSelect(products) {
+  const sel = document.getElementById('informe-select');
+  const current = sel.value;
+  sel.innerHTML = '<option value="">— Elegí un producto —</option>' +
+    products.map(p => `<option value="${p.id}"${p.id === current ? ' selected' : ''}>${p.nombre}${p.sku ? ' ('+p.sku+')' : ''}</option>`).join('');
+}
+
+async function renderInforme() {
+  const pid   = document.getElementById('informe-select').value;
+  const desde = document.getElementById('informe-desde').value;
+  const hasta = document.getElementById('informe-hasta').value;
+
+  document.getElementById('informe-resumen').classList.add('hidden');
+  document.getElementById('informe-tabla').classList.add('hidden');
+  document.getElementById('informe-empty').classList.remove('hidden');
+
+  if (!pid) return;
+
+  // Filtrar movimientos del producto
+  let movs = cachedMovements.filter(m => m.product_id === pid);
+
+  if (desde) {
+    const d = new Date(desde + 'T00:00:00');
+    movs = movs.filter(m => new Date(m.created_at) >= d);
+  }
+  if (hasta) {
+    const h = new Date(hasta + 'T23:59:59');
+    movs = movs.filter(m => new Date(m.created_at) <= h);
+  }
+
+  // Producto actual
+  const prod = cachedProducts.find(p => p.id === pid);
+
+  // Métricas
+  const totalEntradas = movs.filter(m => m.tipo === 'entrada').reduce((a, m) => a + m.cantidad, 0);
+  const totalSalidas  = movs.filter(m => m.tipo === 'salida').reduce((a, m) => a + m.cantidad, 0);
+
+  document.getElementById('inf-stock').textContent    = prod ? `${prod.stock} ${prod.unidad||''}` : '—';
+  document.getElementById('inf-entradas').textContent = `+${totalEntradas}`;
+  document.getElementById('inf-salidas').textContent  = `-${totalSalidas}`;
+  document.getElementById('inf-total').textContent    = movs.length;
+
+  document.getElementById('informe-resumen').classList.remove('hidden');
+  document.getElementById('informe-empty').classList.add('hidden');
+
+  if (!movs.length) {
+    document.getElementById('informe-tabla').classList.add('hidden');
+    document.getElementById('informe-empty').classList.remove('hidden');
+    document.getElementById('informe-empty').innerHTML = `<span class="empty-icon">📭</span><p>No hay movimientos en el período seleccionado</p>`;
+    return;
+  }
+
+  const tbody = document.getElementById('tbody-informe');
+  tbody.innerHTML = movs.map(m => {
+    const dt    = new Date(m.created_at);
+    const fecha = dt.toLocaleDateString('es-AR', { weekday:'long', day:'2-digit', month:'long', year:'numeric' });
+    const hora  = dt.toLocaleTimeString('es-AR', { hour:'2-digit', minute:'2-digit' });
+    const badgeClass  = m.tipo === 'entrada' ? 'mov-in' : m.tipo === 'salida' ? 'mov-out' : 'mov-adj';
+    const icon        = m.tipo === 'entrada' ? '✅' : m.tipo === 'salida' ? '📤' : '🔧';
+    const cantDisplay = m.tipo === 'entrada' ? `+${m.cantidad}` : m.tipo === 'salida' ? `-${m.cantidad}` : `=${m.cantidad}`;
+    return `<tr>
+      <td style="font-size:14px">${fecha}</td>
+      <td style="font-family:'JetBrains Mono',monospace;font-size:15px">${hora}</td>
+      <td><span class="badge ${badgeClass}">${icon} ${m.tipo}</span></td>
+      <td style="font-family:'JetBrains Mono',monospace;font-weight:700;font-size:17px">${cantDisplay}</td>
+      <td style="color:var(--text3)">${m.stock_prev}</td>
+      <td style="font-weight:700">${m.stock_nuevo}</td>
+      <td style="font-size:14px;color:var(--text3)">${m.user_name || m.user_email}</td>
+      <td style="font-size:14px;color:var(--text3)">${m.nota || ''}</td>
+    </tr>`;
+  }).join('');
+
+  document.getElementById('informe-tabla').classList.remove('hidden');
+}
+
+function exportInformeExcel() {
+  const pid   = document.getElementById('informe-select').value;
+  const desde = document.getElementById('informe-desde').value;
+  const hasta = document.getElementById('informe-hasta').value;
+  if (!pid) { showToast('Seleccioná un producto primero', 'error'); return; }
+
+  const prod = cachedProducts.find(p => p.id === pid);
+  let movs   = cachedMovements.filter(m => m.product_id === pid);
+  if (desde) movs = movs.filter(m => new Date(m.created_at) >= new Date(desde + 'T00:00:00'));
+  if (hasta) movs = movs.filter(m => new Date(m.created_at) <= new Date(hasta + 'T23:59:59'));
+
+  const wb = XLSX.utils.book_new();
+  const rows = [
+    [`Informe de movimientos — ${prod?.nombre || ''}`],
+    desde || hasta ? [`Período: ${desde||'inicio'} al ${hasta||'hoy'}`] : [],
+    [],
+    ['Fecha', 'Hora', 'Tipo', 'Cantidad', 'Stock anterior', 'Stock nuevo', 'Usuario', 'Nota'],
+    ...movs.map(m => {
+      const dt = new Date(m.created_at);
+      return [
+        dt.toLocaleDateString('es-AR'),
+        dt.toLocaleTimeString('es-AR', { hour:'2-digit', minute:'2-digit' }),
+        m.tipo,
+        m.tipo === 'entrada' ? m.cantidad : m.tipo === 'salida' ? -m.cantidad : m.cantidad,
+        m.stock_prev, m.stock_nuevo,
+        m.user_name || m.user_email,
+        m.nota || ''
+      ];
+    })
+  ].filter(r => r.length);
+
+  const ws = XLSX.utils.aoa_to_sheet(rows);
+  ws['!cols'] = [20,8,10,10,14,14,22,30].map(w => ({ wch: w }));
+  XLSX.utils.book_append_sheet(wb, ws, 'Informe');
+  XLSX.writeFile(wb, `informe_${prod?.nombre.replace(/\s+/g,'_')}_${new Date().toISOString().slice(0,10)}.xlsx`);
+  showToast('✅ Informe descargado', 'success');
+}
+
+// ══════════════════════════════════
+// EXCEL GENERAL
 // ══════════════════════════════════
 async function exportExcel() {
   showToast('Generando Excel...');
-  const [products, movements] = await Promise.all([fetchProducts(), fetchMovements()]);
-
   const wb = XLSX.utils.book_new();
 
   const prodRows = [
-    ['Nombre', 'Categoría', 'Stock', 'Stock mínimo', 'Precio', 'Unidad', 'SKU', 'Proveedor', 'Estado', 'Valor en stock'],
-    ...products.map(p => [
+    ['Nombre','Categoría','Stock','Stock mínimo','Precio','Unidad','SKU','Proveedor','Estado','Valor en stock'],
+    ...cachedProducts.map(p => [
       p.nombre, p.categoria, p.stock, p.stock_minimo, p.precio,
-      p.unidad, p.sku || '', p.proveedor || '',
-      getStatus(p) === 'ok' ? 'Normal' : getStatus(p) === 'low' ? 'Stock bajo' : 'Sin stock',
-      (p.stock * (p.precio || 0)).toFixed(2)
+      p.unidad, p.sku||'', p.proveedor||'',
+      getStatus(p)==='ok'?'Normal':getStatus(p)==='low'?'Stock bajo':'Sin stock',
+      (p.stock*(p.precio||0)).toFixed(2)
     ])
   ];
   const ws1 = XLSX.utils.aoa_to_sheet(prodRows);
-  ws1['!cols'] = [22,14,8,12,10,10,12,22,12,14].map(w => ({ wch: w }));
+  ws1['!cols'] = [24,14,8,12,10,10,12,22,12,14].map(w=>({wch:w}));
   XLSX.utils.book_append_sheet(wb, ws1, 'Inventario');
 
-  if (movements.length) {
+  if (cachedMovements.length) {
     const movRows = [
-      ['Fecha', 'Producto', 'Tipo', 'Cantidad', 'Stock ant.', 'Stock nuevo', 'Usuario', 'Nota'],
-      ...movements.map(m => [
-        new Date(m.created_at).toLocaleString('es-AR'),
-        m.product_name, m.tipo, m.cantidad, m.stock_prev, m.stock_nuevo,
-        m.user_name || m.user_email, m.nota || ''
-      ])
+      ['Fecha','Hora','Producto','Tipo','Cantidad','Stock ant.','Stock nuevo','Usuario','Nota'],
+      ...cachedMovements.map(m => {
+        const dt = new Date(m.created_at);
+        return [
+          dt.toLocaleDateString('es-AR'),
+          dt.toLocaleTimeString('es-AR',{hour:'2-digit',minute:'2-digit'}),
+          m.product_name, m.tipo, m.cantidad,
+          m.stock_prev, m.stock_nuevo,
+          m.user_name||m.user_email, m.nota||''
+        ];
+      })
     ];
     const ws2 = XLSX.utils.aoa_to_sheet(movRows);
-    ws2['!cols'] = [18,22,10,10,12,12,20,30].map(w => ({ wch: w }));
+    ws2['!cols'] = [14,8,24,10,10,12,12,20,30].map(w=>({wch:w}));
     XLSX.utils.book_append_sheet(wb, ws2, 'Movimientos');
   }
 
-  const alerts = products.filter(p => getStatus(p) !== 'ok');
+  const alerts = cachedProducts.filter(p => getStatus(p) !== 'ok');
   if (alerts.length) {
     const altRows = [
-      ['Nombre', 'Categoría', 'Stock', 'Mínimo', 'Estado', 'Proveedor'],
-      ...alerts.map(p => [p.nombre, p.categoria, p.stock, p.stock_minimo,
-        getStatus(p) === 'low' ? 'Stock bajo' : 'Sin stock', p.proveedor || ''])
+      ['Nombre','Categoría','Stock','Mínimo','Estado','Proveedor'],
+      ...alerts.map(p=>[p.nombre,p.categoria,p.stock,p.stock_minimo,
+        getStatus(p)==='low'?'Stock bajo':'Sin stock',p.proveedor||''])
     ];
     const ws3 = XLSX.utils.aoa_to_sheet(altRows);
-    ws3['!cols'] = [22,14,8,8,12,22].map(w => ({ wch: w }));
+    ws3['!cols'] = [24,14,8,8,12,22].map(w=>({wch:w}));
     XLSX.utils.book_append_sheet(wb, ws3, 'Alertas');
   }
 
-  const fecha = new Date().toISOString().slice(0, 10);
-  XLSX.writeFile(wb, `inventario_${fecha}.xlsx`);
-  showToast('Excel descargado', 'success');
+  XLSX.writeFile(wb, `inventario_${new Date().toISOString().slice(0,10)}.xlsx`);
+  showToast('✅ Excel descargado', 'success');
 }
 
 // ══════════════════════════════════
 // UI HELPERS
 // ══════════════════════════════════
 function switchTab(name, el) {
-  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  document.querySelectorAll('.tab').forEach(t => { t.classList.remove('active'); t.setAttribute('aria-selected','false'); });
   el.classList.add('active');
+  el.setAttribute('aria-selected','true');
   document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
   document.getElementById('view-' + name).classList.add('active');
+  if (name === 'informe') renderInforme();
 }
 
-function closeModal(id) {
-  document.getElementById(id).classList.add('hidden');
-}
-
-function closeIfOverlay(e, id) {
-  if (e.target.id === id) closeModal(id);
-}
+function closeModal(id) { document.getElementById(id).classList.add('hidden'); }
+function closeIfOverlay(e, id) { if (e.target.id === id) closeModal(id); }
 
 let toastTimer = null;
 function showToast(msg, type = '') {
@@ -481,14 +610,12 @@ function showToast(msg, type = '') {
   el.className = `toast ${type}`;
   el.classList.remove('hidden');
   clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => el.classList.add('hidden'), 3000);
+  toastTimer = setTimeout(() => el.classList.add('hidden'), 3200);
 }
 
-function escapeHtml(str) {
-  return (str || '').replace(/'/g, "\\'").replace(/"/g, '&quot;');
+function escHtml(str) {
+  return (str||'').replace(/'/g,"\\'").replace(/"/g,'&quot;');
 }
 
-// ══════════════════════════════════
-// BOOT
-// ══════════════════════════════════
+// ── BOOT ──
 checkSession();
