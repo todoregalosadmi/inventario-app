@@ -3,108 +3,143 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="theme-color" content="#1a1f2e" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="Inventario" />
+  <meta name="description" content="Sistema de control de stock e inventario" />
+  <link rel="manifest" href="manifest.json" />
+  <link rel="apple-touch-icon" href="icon-192.png" />
   <title>Inventario</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
-  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
 
-  <!-- AUTH SCREEN -->
+  <!-- AUTH -->
   <div id="auth-screen" class="auth-screen">
     <div class="auth-card">
       <div class="auth-logo">
-        <span class="logo-icon">▦</span>
+        <div class="logo-mark">▦</div>
         <span class="logo-text">Inventario</span>
       </div>
+
       <div id="auth-error" class="auth-error hidden"></div>
 
       <div id="form-login">
-        <h2 class="auth-title">Iniciar sesión</h2>
-        <div class="field"><label>Email</label><input type="email" id="login-email" placeholder="tu@email.com" /></div>
-        <div class="field"><label>Contraseña</label><input type="password" id="login-pass" placeholder="••••••••" /></div>
-        <button class="btn-auth" onclick="doLogin()">Entrar</button>
+        <h2 class="auth-title">Bienvenido</h2>
+        <p class="auth-sub">Iniciá sesión para continuar</p>
+        <div class="field">
+          <label for="login-email">Email</label>
+          <input type="email" id="login-email" placeholder="tu@email.com" autocomplete="email" />
+        </div>
+        <div class="field">
+          <label for="login-pass">Contraseña</label>
+          <input type="password" id="login-pass" placeholder="••••••••" autocomplete="current-password" />
+        </div>
+        <button class="btn-auth" onclick="doLogin()">Entrar al sistema</button>
         <p class="auth-switch">¿No tenés cuenta? <a href="#" onclick="showRegister()">Registrarse</a></p>
       </div>
 
       <div id="form-register" class="hidden">
         <h2 class="auth-title">Crear cuenta</h2>
-        <div class="field"><label>Nombre</label><input type="text" id="reg-name" placeholder="Tu nombre" /></div>
-        <div class="field"><label>Email</label><input type="email" id="reg-email" placeholder="tu@email.com" /></div>
-        <div class="field"><label>Contraseña</label><input type="password" id="reg-pass" placeholder="Mínimo 6 caracteres" /></div>
-        <button class="btn-auth" onclick="doRegister()">Crear cuenta</button>
+        <p class="auth-sub">Es gratis y tarda menos de un minuto</p>
+        <div class="field">
+          <label for="reg-name">Tu nombre</label>
+          <input type="text" id="reg-name" placeholder="Nombre completo" autocomplete="name" />
+        </div>
+        <div class="field">
+          <label for="reg-email">Email</label>
+          <input type="email" id="reg-email" placeholder="tu@email.com" autocomplete="email" />
+        </div>
+        <div class="field">
+          <label for="reg-pass">Contraseña</label>
+          <input type="password" id="reg-pass" placeholder="Mínimo 6 caracteres" autocomplete="new-password" />
+        </div>
+        <button class="btn-auth" onclick="doRegister()">Crear mi cuenta</button>
         <p class="auth-switch">¿Ya tenés cuenta? <a href="#" onclick="showLogin()">Iniciar sesión</a></p>
       </div>
     </div>
   </div>
 
-  <!-- MAIN APP -->
+  <!-- APP -->
   <div id="app" class="app hidden">
-    <nav class="navbar">
+
+    <nav class="navbar" role="navigation" aria-label="Navegación principal">
       <div class="nav-left">
-        <span class="logo-icon">▦</span>
+        <div class="logo-mark small">▦</div>
         <span class="logo-text">Inventario</span>
       </div>
       <div class="nav-right">
-        <span id="nav-user" class="nav-user"></span>
-        <button class="btn-logout" onclick="doLogout()">Salir</button>
+        <span id="nav-user" class="nav-user" aria-label="Usuario actual"></span>
+        <button class="btn-logout" onclick="doLogout()" aria-label="Cerrar sesión">Salir</button>
       </div>
     </nav>
 
-    <main class="main">
+    <main class="main" role="main">
+
       <!-- METRICS -->
-      <div class="metrics-grid">
-        <div class="metric-card">
+      <section class="metrics-grid" aria-label="Resumen del inventario">
+        <div class="metric-card" role="status" aria-live="polite">
+          <div class="metric-icon">📦</div>
           <div class="metric-label">Total productos</div>
           <div class="metric-value" id="m-total">—</div>
         </div>
-        <div class="metric-card">
+        <div class="metric-card" role="status" aria-live="polite">
+          <div class="metric-icon">💰</div>
           <div class="metric-label">Valor en stock</div>
           <div class="metric-value" id="m-valor">—</div>
         </div>
-        <div class="metric-card warn">
+        <div class="metric-card warn" role="status" aria-live="polite" aria-label="Productos con stock bajo">
+          <div class="metric-icon">⚠️</div>
           <div class="metric-label">Stock bajo</div>
           <div class="metric-value" id="m-low">—</div>
         </div>
-        <div class="metric-card danger">
+        <div class="metric-card danger" role="status" aria-live="polite" aria-label="Productos sin stock">
+          <div class="metric-icon">🚨</div>
           <div class="metric-label">Sin stock</div>
           <div class="metric-value" id="m-out">—</div>
         </div>
-      </div>
+      </section>
 
       <!-- TOOLBAR -->
       <div class="toolbar">
         <div class="toolbar-left">
-          <input type="text" id="search" placeholder="Buscar producto..." oninput="renderAll()" />
-          <select id="filterCat" onchange="renderAll()"></select>
+          <div class="search-wrap">
+            <span class="search-icon" aria-hidden="true">🔍</span>
+            <input type="text" id="search" placeholder="Buscar producto, proveedor..." oninput="renderAll()" aria-label="Buscar productos" />
+          </div>
+          <select id="filterCat" onchange="renderAll()" aria-label="Filtrar por categoría"></select>
         </div>
         <div class="toolbar-right">
-          <button class="btn-outline" onclick="exportExcel()">↓ Excel</button>
-          <button class="btn-primary" onclick="openProductModal()">+ Producto</button>
+          <button class="btn-outline" onclick="exportExcel()" aria-label="Exportar a Excel">↓ Excel</button>
+          <button class="btn-primary" onclick="openProductModal()" aria-label="Agregar nuevo producto">+ Producto</button>
         </div>
       </div>
 
       <!-- TABS -->
-      <div class="tabs">
-        <button class="tab active" onclick="switchTab('productos', this)">Productos</button>
-        <button class="tab" onclick="switchTab('alertas', this)">Alertas <span id="alert-badge" class="badge-tab hidden"></span></button>
-        <button class="tab" onclick="switchTab('movimientos', this)">Movimientos</button>
+      <div class="tabs" role="tablist" aria-label="Secciones del inventario">
+        <button class="tab active" role="tab" aria-selected="true" onclick="switchTab('productos', this)">📋 Productos</button>
+        <button class="tab" role="tab" aria-selected="false" onclick="switchTab('alertas', this)">🔔 Alertas <span id="alert-badge" class="badge-tab hidden" aria-label="alertas activas"></span></button>
+        <button class="tab" role="tab" aria-selected="false" onclick="switchTab('movimientos', this)">🔄 Movimientos</button>
+        <button class="tab" role="tab" aria-selected="false" onclick="switchTab('informe', this)">📊 Informe</button>
       </div>
 
-      <!-- PRODUCTS TABLE -->
-      <div id="view-productos" class="view active">
+      <!-- PRODUCTOS -->
+      <div id="view-productos" class="view active" role="tabpanel">
         <div class="table-wrap">
-          <table>
+          <table aria-label="Lista de productos">
             <thead>
               <tr>
-                <th style="width:52px"></th>
-                <th>Producto</th>
-                <th>Categoría</th>
-                <th>Stock</th>
-                <th>Mínimo</th>
-                <th>Precio</th>
-                <th>Estado</th>
-                <th>Acciones</th>
+                <th scope="col" style="width:52px">Foto</th>
+                <th scope="col">Producto</th>
+                <th scope="col">Categoría</th>
+                <th scope="col">Stock</th>
+                <th scope="col">Mínimo</th>
+                <th scope="col">Precio</th>
+                <th scope="col">Estado</th>
+                <th scope="col">Acciones</th>
               </tr>
             </thead>
             <tbody id="tbody-products"></tbody>
@@ -112,68 +147,134 @@
         </div>
       </div>
 
-      <!-- ALERTS VIEW -->
-      <div id="view-alertas" class="view hidden">
+      <!-- ALERTAS -->
+      <div id="view-alertas" class="view hidden" role="tabpanel">
         <div id="alerts-list"></div>
       </div>
 
-      <!-- MOVEMENTS VIEW -->
-      <div id="view-movimientos" class="view hidden">
+      <!-- MOVIMIENTOS -->
+      <div id="view-movimientos" class="view hidden" role="tabpanel">
         <div class="table-wrap">
-          <table>
+          <table aria-label="Historial de movimientos">
             <thead>
               <tr>
-                <th>Fecha</th>
-                <th>Producto</th>
-                <th>Tipo</th>
-                <th>Cant.</th>
-                <th>Ant.</th>
-                <th>Nuevo</th>
-                <th>Usuario</th>
-                <th>Nota</th>
+                <th scope="col">Fecha y hora</th>
+                <th scope="col">Producto</th>
+                <th scope="col">Tipo</th>
+                <th scope="col">Cantidad</th>
+                <th scope="col">Stock ant.</th>
+                <th scope="col">Stock nuevo</th>
+                <th scope="col">Usuario</th>
+                <th scope="col">Nota</th>
               </tr>
             </thead>
             <tbody id="tbody-mov"></tbody>
           </table>
         </div>
       </div>
+
+      <!-- INFORME POR PRODUCTO -->
+      <div id="view-informe" class="view hidden" role="tabpanel">
+        <div class="informe-header">
+          <div class="field" style="flex:1;max-width:360px">
+            <label for="informe-select">Seleccioná un producto para ver su historial completo</label>
+            <select id="informe-select" onchange="renderInforme()" aria-label="Seleccionar producto para informe">
+              <option value="">— Elegí un producto —</option>
+            </select>
+          </div>
+          <div class="field" style="max-width:160px">
+            <label for="informe-desde">Desde</label>
+            <input type="date" id="informe-desde" onchange="renderInforme()" />
+          </div>
+          <div class="field" style="max-width:160px">
+            <label for="informe-hasta">Hasta</label>
+            <input type="date" id="informe-hasta" onchange="renderInforme()" />
+          </div>
+          <button class="btn-outline" onclick="exportInformeExcel()" style="align-self:flex-end" aria-label="Exportar informe a Excel">↓ Exportar</button>
+        </div>
+
+        <div id="informe-resumen" class="informe-resumen hidden">
+          <div class="informe-stat">
+            <div class="informe-stat-label">Stock actual</div>
+            <div class="informe-stat-value" id="inf-stock">—</div>
+          </div>
+          <div class="informe-stat">
+            <div class="informe-stat-label">Total entradas</div>
+            <div class="informe-stat-value green" id="inf-entradas">—</div>
+          </div>
+          <div class="informe-stat">
+            <div class="informe-stat-label">Total salidas</div>
+            <div class="informe-stat-value red" id="inf-salidas">—</div>
+          </div>
+          <div class="informe-stat">
+            <div class="informe-stat-label">Movimientos</div>
+            <div class="informe-stat-value" id="inf-total">—</div>
+          </div>
+        </div>
+
+        <div id="informe-tabla" class="hidden">
+          <div class="table-wrap">
+            <table aria-label="Historial de movimientos del producto seleccionado">
+              <thead>
+                <tr>
+                  <th scope="col">Fecha</th>
+                  <th scope="col">Hora</th>
+                  <th scope="col">Tipo</th>
+                  <th scope="col">Cantidad</th>
+                  <th scope="col">Stock antes</th>
+                  <th scope="col">Stock después</th>
+                  <th scope="col">Usuario</th>
+                  <th scope="col">Nota</th>
+                </tr>
+              </thead>
+              <tbody id="tbody-informe"></tbody>
+            </table>
+          </div>
+        </div>
+
+        <div id="informe-empty" class="empty-state">
+          <span class="empty-icon">📊</span>
+          <p>Seleccioná un producto para ver su historial completo de entradas y salidas</p>
+        </div>
+      </div>
+
     </main>
   </div>
 
-  <!-- PRODUCT MODAL -->
-  <div id="product-modal" class="modal-overlay hidden" onclick="closeIfOverlay(event,'product-modal')">
+  <!-- MODAL PRODUCTO -->
+  <div id="product-modal" class="modal-overlay hidden" onclick="closeIfOverlay(event,'product-modal')" role="dialog" aria-modal="true" aria-labelledby="product-modal-title">
     <div class="modal">
       <div class="modal-header">
         <span class="modal-title" id="product-modal-title">Agregar producto</span>
-        <button class="modal-close" onclick="closeModal('product-modal')">✕</button>
+        <button class="modal-close" onclick="closeModal('product-modal')" aria-label="Cerrar">✕</button>
       </div>
       <div class="modal-body">
         <input type="hidden" id="edit-id" />
 
-        <div class="photo-area" onclick="document.getElementById('f-foto').click()">
-          <img id="photo-preview" class="photo-preview hidden" alt="preview" />
+        <div class="photo-area" onclick="document.getElementById('f-foto').click()" role="button" aria-label="Subir foto del producto" tabindex="0">
+          <img id="photo-preview" class="photo-preview hidden" alt="Vista previa del producto" />
           <div id="photo-placeholder" class="photo-placeholder">
-            <span class="photo-icon">⊕</span>
-            <span>Subir foto</span>
+            <span class="photo-icon" aria-hidden="true">📷</span>
+            <span>Tocar para subir foto</span>
           </div>
-          <input type="file" id="f-foto" accept="image/*" style="display:none" onchange="handlePhotoUpload(event)" />
+          <input type="file" id="f-foto" accept="image/*" style="display:none" onchange="handlePhotoUpload(event)" aria-label="Seleccionar foto" />
         </div>
 
         <div class="form-grid-1">
-          <div class="field"><label>Nombre del producto *</label><input type="text" id="f-nombre" placeholder="Ej: Tornillo hex 5mm" /></div>
+          <div class="field"><label for="f-nombre">Nombre del producto *</label><input type="text" id="f-nombre" placeholder="Ej: Tornillo hex 5mm" /></div>
         </div>
         <div class="form-grid-2">
-          <div class="field"><label>Categoría</label><input type="text" id="f-cat" placeholder="Ej: Ferretería" /></div>
-          <div class="field"><label>Proveedor</label><input type="text" id="f-prov" placeholder="Nombre del proveedor" /></div>
+          <div class="field"><label for="f-cat">Categoría</label><input type="text" id="f-cat" placeholder="Ej: Ferretería" /></div>
+          <div class="field"><label for="f-prov">Proveedor</label><input type="text" id="f-prov" placeholder="Nombre del proveedor" /></div>
         </div>
         <div class="form-grid-3">
-          <div class="field"><label>Stock actual</label><input type="number" id="f-stock" placeholder="0" min="0" /></div>
-          <div class="field"><label>Stock mínimo</label><input type="number" id="f-min" placeholder="5" min="0" /></div>
-          <div class="field"><label>Precio ($)</label><input type="number" id="f-precio" placeholder="0.00" step="0.01" min="0" /></div>
+          <div class="field"><label for="f-stock">Stock actual</label><input type="number" id="f-stock" placeholder="0" min="0" /></div>
+          <div class="field"><label for="f-min">Stock mínimo</label><input type="number" id="f-min" placeholder="5" min="0" /></div>
+          <div class="field"><label for="f-precio">Precio ($)</label><input type="number" id="f-precio" placeholder="0.00" step="0.01" min="0" /></div>
         </div>
         <div class="form-grid-2">
-          <div class="field"><label>Unidad</label><input type="text" id="f-unidad" placeholder="unidad / kg / lt" /></div>
-          <div class="field"><label>Código / SKU</label><input type="text" id="f-sku" placeholder="Ej: TRN-001" /></div>
+          <div class="field"><label for="f-unidad">Unidad</label><input type="text" id="f-unidad" placeholder="unidad / kg / lt" /></div>
+          <div class="field"><label for="f-sku">Código / SKU</label><input type="text" id="f-sku" placeholder="Ej: TRN-001" /></div>
         </div>
       </div>
       <div class="modal-footer">
@@ -183,24 +284,31 @@
     </div>
   </div>
 
-  <!-- MOVEMENT MODAL -->
-  <div id="mov-modal" class="modal-overlay hidden" onclick="closeIfOverlay(event,'mov-modal')">
+  <!-- MODAL MOVIMIENTO -->
+  <div id="mov-modal" class="modal-overlay hidden" onclick="closeIfOverlay(event,'mov-modal')" role="dialog" aria-modal="true" aria-labelledby="mov-modal-title">
     <div class="modal modal-sm">
       <div class="modal-header">
         <span class="modal-title" id="mov-modal-title">Registrar movimiento</span>
-        <button class="modal-close" onclick="closeModal('mov-modal')">✕</button>
+        <button class="modal-close" onclick="closeModal('mov-modal')" aria-label="Cerrar">✕</button>
       </div>
       <div class="modal-body">
         <input type="hidden" id="mov-pid" />
-        <div class="field"><label>Tipo de movimiento</label>
+        <div class="field">
+          <label for="mov-tipo">Tipo de movimiento</label>
           <select id="mov-tipo">
-            <option value="entrada">Entrada — compra / recepción</option>
-            <option value="salida">Salida — venta / uso</option>
-            <option value="ajuste">Ajuste de inventario</option>
+            <option value="entrada">✅ Entrada — compra / recepción</option>
+            <option value="salida">📤 Salida — venta / uso</option>
+            <option value="ajuste">🔧 Ajuste de inventario</option>
           </select>
         </div>
-        <div class="field"><label>Cantidad</label><input type="number" id="mov-cant" min="1" placeholder="0" /></div>
-        <div class="field"><label>Nota (opcional)</label><input type="text" id="mov-nota" placeholder="Ej: Recepción proveedor #045" /></div>
+        <div class="field">
+          <label for="mov-cant">Cantidad</label>
+          <input type="number" id="mov-cant" min="1" placeholder="0" />
+        </div>
+        <div class="field">
+          <label for="mov-nota">Nota (opcional)</label>
+          <input type="text" id="mov-nota" placeholder="Ej: Recepción proveedor #045" />
+        </div>
       </div>
       <div class="modal-footer">
         <button class="btn-outline" onclick="closeModal('mov-modal')">Cancelar</button>
@@ -210,7 +318,7 @@
   </div>
 
   <!-- TOAST -->
-  <div id="toast" class="toast hidden"></div>
+  <div id="toast" class="toast hidden" role="alert" aria-live="assertive"></div>
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
