@@ -5,7 +5,7 @@ const SUPABASE_KEY = 'sb_publishable_5DB4QScSv_f-3E4zq5Pxdg_2HuPahNv';
 const { createClient } = supabase;
 const db = createClient(SUPABASE_URL, SUPABASE_KEY);
 
-let currentUser    = null;
+let currentUser     = null;
 let pendingPhotoFile = null;
 let cachedProducts  = [];
 let cachedMovements = [];
@@ -15,7 +15,7 @@ let cachedMovements = [];
 // ══════════════════════════════════
 async function checkSession() {
   const { data: { session } } = await db.auth.getSession();
-  if (session) { currentUser = session.user; showApp(); }
+  if (session) { currentUser = session.user; await showApp(); }
   else showAuth();
 }
 
@@ -27,7 +27,7 @@ async function doLogin() {
   if (error) return showAuthError('Email o contraseña incorrectos.');
   const { data: { session } } = await db.auth.getSession();
   currentUser = session.user;
-  showApp();
+  await showApp();
 }
 
 async function doRegister() {
@@ -44,17 +44,19 @@ async function doRegister() {
 async function doLogout() {
   await db.auth.signOut();
   currentUser = null;
+  cachedProducts  = [];
+  cachedMovements = [];
   document.getElementById('app').classList.add('hidden');
   document.getElementById('auth-screen').classList.remove('hidden');
   showLogin();
 }
 
-function showApp() {
+async function showApp() {
   document.getElementById('auth-screen').classList.add('hidden');
   document.getElementById('app').classList.remove('hidden');
   const name = currentUser.user_metadata?.name || currentUser.email;
   document.getElementById('nav-user').textContent = '👤 ' + name;
-  loadAll();
+  await loadAll();
 }
 
 function showAuth() {
@@ -81,18 +83,31 @@ function showAuthError(msg, isInfo = false) {
   el.style.background = isInfo ? 'rgba(59,130,246,0.12)' : '';
   el.style.color      = isInfo ? '#93c5fd' : '';
 }
-
-function clearAuthError() {
-  document.getElementById('auth-error').classList.add('hidden');
-}
+function clearAuthError() { document.getElementById('auth-error').classList.add('hidden'); }
 
 // ══════════════════════════════════
-// CARGA PRINCIPAL
+// CARGA PRINCIPAL — trae datos y renderiza todo
 // ══════════════════════════════════
 async function loadAll() {
-  const [products, movements] = await Promise.all([fetchProducts(), fetchMovements()]);
-  cachedProducts  = products  || [];
-  cachedMovements = movements || [];
+  // Traer productos
+  const { data: prods, error: e1 } = await db
+    .from('products')
+    .select('*')
+    .order('nombre', { ascending: true });
+  if (e1) { showToast('Error cargando productos: ' + e1.message, 'error'); return; }
+  cachedProducts = prods || [];
+
+  // Traer movimientos
+  const { data: movs, error: e2 } = await db
+    .from('movements')
+    .select('*')
+    .order('fecha_real', { ascending: false, nullsFirst: false })
+    .order('created_at', { ascending: false })
+    .limit(1000);
+  if (e2) { showToast('Error cargando movimientos: ' + e2.message, 'error'); return; }
+  cachedMovements = movs || [];
+
+  // Renderizar todo
   renderMetrics();
   renderCatFilter();
   renderProducts();
@@ -102,14 +117,8 @@ async function loadAll() {
 }
 
 // ══════════════════════════════════
-// PRODUCTOS
+// HELPERS DE ESTADO
 // ══════════════════════════════════
-async function fetchProducts() {
-  const { data, error } = await db.from('products').select('*').order('nombre', { ascending: true });
-  if (error) { showToast('Error cargando productos', 'error'); return []; }
-  return data;
-}
-
 function getStatus(p) {
   if (p.stock === 0) return 'out';
   if (p.stock_minimo > 0 && p.stock <= p.stock_minimo) return 'low';
@@ -123,21 +132,41 @@ function statusBadge(p) {
   return '<span class="badge badge-ok">✅ Normal</span>';
 }
 
+function formatFecha(isoStr) {
+  if (!isoStr) return '—';
+  const dt = new Date(isoStr);
+  return dt.toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit', year: 'numeric' });
+}
+
+function formatHora(isoStr) {
+  if (!isoStr) return '—';
+  const dt = new Date(isoStr);
+  return dt.toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' });
+}
+
+// ══════════════════════════════════
+// RENDER — métricas
+// ══════════════════════════════════
 function renderMetrics() {
   const total = cachedProducts.length;
   const valor = cachedProducts.reduce((a, p) => a + p.stock * (p.precio || 0), 0);
   const low   = cachedProducts.filter(p => p.stock > 0 && p.stock_minimo > 0 && p.stock <= p.stock_minimo).length;
   const out   = cachedProducts.filter(p => p.stock === 0).length;
+
   document.getElementById('m-total').textContent = total;
   document.getElementById('m-valor').textContent = '$' + valor.toLocaleString('es-AR', { minimumFractionDigits: 0, maximumFractionDigits: 0 });
   document.getElementById('m-low').textContent   = low;
   document.getElementById('m-out').textContent   = out;
+
   const badge = document.getElementById('alert-badge');
   const count = low + out;
   if (count > 0) { badge.textContent = count; badge.classList.remove('hidden'); }
   else badge.classList.add('hidden');
 }
 
+// ══════════════════════════════════
+// RENDER — filtro de categorías
+// ══════════════════════════════════
 function renderCatFilter() {
   const sel     = document.getElementById('filterCat');
   const current = sel.value;
@@ -146,21 +175,27 @@ function renderCatFilter() {
     cats.map(c => `<option value="${c}"${c === current ? ' selected' : ''}>${c}</option>`).join('');
 }
 
+// ══════════════════════════════════
+// RENDER — tabla de productos
+// ══════════════════════════════════
 function renderProducts() {
   const q   = (document.getElementById('search').value || '').toLowerCase();
   const cat = document.getElementById('filterCat').value;
+
   const filtered = cachedProducts.filter(p =>
     (!q   || p.nombre.toLowerCase().includes(q) || (p.proveedor||'').toLowerCase().includes(q) || (p.sku||'').toLowerCase().includes(q)) &&
     (!cat || p.categoria === cat)
   );
+
   const tbody = document.getElementById('tbody-products');
   if (!filtered.length) {
     tbody.innerHTML = `<tr><td colspan="8"><div class="empty-state"><span class="empty-icon">🔍</span>Sin resultados</div></td></tr>`;
     return;
   }
+
   tbody.innerHTML = filtered.map(p => {
     const thumb = p.foto_url
-      ? `<img src="${p.foto_url}" class="prod-thumb" alt="Foto de ${p.nombre}" />`
+      ? `<img src="${p.foto_url}" class="prod-thumb" alt="${p.nombre}" />`
       : `<div class="prod-placeholder">📦</div>`;
     return `<tr>
       <td>${thumb}</td>
@@ -185,13 +220,18 @@ function renderProducts() {
   }).join('');
 }
 
+// ══════════════════════════════════
+// RENDER — alertas
+// ══════════════════════════════════
 function renderAlerts() {
   const el     = document.getElementById('alerts-list');
   const alerts = cachedProducts.filter(p => getStatus(p) !== 'ok');
+
   if (!alerts.length) {
     el.innerHTML = `<div class="empty-state"><span class="empty-icon">✅</span>Sin alertas activas. ¡Todo el stock está en orden!</div>`;
     return;
   }
+
   el.innerHTML = alerts.map(p => {
     const s   = getStatus(p);
     const msg = s === 'out'
@@ -207,27 +247,30 @@ function renderAlerts() {
   }).join('');
 }
 
+// ══════════════════════════════════
+// RENDER — movimientos (pestaña general)
+// ══════════════════════════════════
 function renderMovements() {
   const tbody = document.getElementById('tbody-mov');
-  if (!cachedMovements.length) {
-    tbody.innerHTML = `<tr><td colspan="8"><div class="empty-state"><span class="empty-icon">📋</span>No hay movimientos aún</div></td></tr>`;
+
+  if (!cachedMovements || cachedMovements.length === 0) {
+    tbody.innerHTML = `<tr><td colspan="8"><div class="empty-state"><span class="empty-icon">📋</span>No hay movimientos registrados aún</div></td></tr>`;
     return;
   }
+
   tbody.innerHTML = cachedMovements.map(m => {
-    const dt    = new Date(m.fecha_real || m.created_at);
-    const fecha = dt.toLocaleDateString('es-AR', { day:'2-digit', month:'2-digit', year:'numeric' });
-    const hora  = dt.toLocaleTimeString('es-AR', { hour:'2-digit', minute:'2-digit' });
-    const bc    = m.tipo === 'entrada' ? 'mov-in' : m.tipo === 'salida' ? 'mov-out' : 'mov-adj';
-    const ic    = m.tipo === 'entrada' ? '✅' : m.tipo === 'salida' ? '📤' : '🔧';
-    const cd    = m.tipo === 'entrada' ? `+${m.cantidad}` : m.tipo === 'salida' ? `-${m.cantidad}` : `=${m.cantidad}`;
+    const fechaStr = m.fecha_real || m.created_at;
+    const bc = m.tipo === 'entrada' ? 'mov-in' : m.tipo === 'salida' ? 'mov-out' : 'mov-adj';
+    const ic = m.tipo === 'entrada' ? '✅' : m.tipo === 'salida' ? '📤' : '🔧';
+    const cd = m.tipo === 'entrada' ? `+${m.cantidad}` : m.tipo === 'salida' ? `-${m.cantidad}` : `=${m.cantidad}`;
     return `<tr>
-      <td style="white-space:nowrap;font-size:14px">${fecha} ${hora}</td>
+      <td style="white-space:nowrap;font-size:14px">${formatFecha(fechaStr)} ${formatHora(fechaStr)}</td>
       <td style="font-weight:600">${m.product_name}</td>
       <td><span class="badge ${bc}">${ic} ${m.tipo}</span></td>
       <td style="font-family:'JetBrains Mono',monospace;font-weight:700;font-size:16px">${cd}</td>
       <td style="color:var(--text3)">${m.stock_prev}</td>
       <td style="font-weight:600">${m.stock_nuevo}</td>
-      <td style="font-size:14px;color:var(--text3)">${m.user_name || m.user_email}</td>
+      <td style="font-size:14px;color:var(--text3)">${m.user_name || m.user_email || ''}</td>
       <td style="font-size:14px;color:var(--text3)">${m.nota || ''}</td>
     </tr>`;
   }).join('');
@@ -239,7 +282,9 @@ function renderMovements() {
 function openProductModal() {
   document.getElementById('edit-id').value = '';
   document.getElementById('product-modal-title').textContent = 'Agregar producto';
-  ['f-nombre','f-cat','f-prov','f-stock','f-min','f-precio','f-unidad','f-sku'].forEach(id => document.getElementById(id).value = '');
+  ['f-nombre','f-cat','f-prov','f-stock','f-min','f-precio','f-unidad','f-sku'].forEach(id => {
+    document.getElementById(id).value = '';
+  });
   pendingPhotoFile = null;
   document.getElementById('photo-preview').classList.add('hidden');
   document.getElementById('photo-placeholder').classList.remove('hidden');
@@ -298,6 +343,7 @@ async function uploadPhoto(file) {
 async function saveProduct() {
   const nombre = document.getElementById('f-nombre').value.trim();
   if (!nombre) { showToast('El nombre es requerido', 'error'); return; }
+
   const editId = document.getElementById('edit-id').value;
   let foto_url = null;
   if (pendingPhotoFile) {
@@ -305,6 +351,7 @@ async function saveProduct() {
   } else if (editId) {
     foto_url = cachedProducts.find(p => p.id === editId)?.foto_url || null;
   }
+
   const payload = {
     nombre,
     categoria:    document.getElementById('f-cat').value.trim()    || 'General',
@@ -315,8 +362,9 @@ async function saveProduct() {
     unidad:       document.getElementById('f-unidad').value.trim()  || 'unidad',
     sku:          document.getElementById('f-sku').value.trim()      || null,
     foto_url,
-    updated_by: currentUser.email,
+    updated_by:   currentUser.email,
   };
+
   if (editId) {
     const { error } = await db.from('products').update(payload).eq('id', editId);
     if (error) { showToast('Error: ' + error.message, 'error'); return; }
@@ -339,18 +387,8 @@ async function deleteProduct(id, nombre) {
 }
 
 // ══════════════════════════════════
-// MOVIMIENTOS
+// MODAL MOVIMIENTO
 // ══════════════════════════════════
-async function fetchMovements() {
-  const { data, error } = await db
-    .from('movements')
-    .select('*')
-    .order('created_at', { ascending: false })
-    .limit(500);
-  if (error) { console.error('fetchMovements error:', error); return []; }
-  return data;
-}
-
 function openMovModal(pid, nombre) {
   document.getElementById('mov-pid').value               = pid;
   document.getElementById('mov-modal-title').textContent = nombre;
@@ -387,12 +425,10 @@ async function saveMovimiento() {
   else if (tipo === 'salida')  nuevo = Math.max(0, prev - cant);
   else                         nuevo = cant;
 
-  const fechaReal = new Date(fechaVal).toISOString();
-
   const { error: pErr } = await db.from('products')
     .update({ stock: nuevo, updated_by: currentUser.email })
     .eq('id', pid);
-  if (pErr) { showToast('Error stock: ' + pErr.message, 'error'); return; }
+  if (pErr) { showToast('Error actualizando stock: ' + pErr.message, 'error'); return; }
 
   const { error: mErr } = await db.from('movements').insert({
     product_id:   pid,
@@ -402,11 +438,11 @@ async function saveMovimiento() {
     stock_prev:   prev,
     stock_nuevo:  nuevo,
     nota:         nota || null,
-    fecha_real:   fechaReal,
+    fecha_real:   new Date(fechaVal).toISOString(),
     user_email:   currentUser.email,
     user_name:    currentUser.user_metadata?.name || currentUser.email,
   });
-  if (mErr) { showToast('Error movimiento: ' + mErr.message, 'error'); return; }
+  if (mErr) { showToast('Error guardando movimiento: ' + mErr.message, 'error'); return; }
 
   closeModal('mov-modal');
   showToast('✅ Movimiento registrado', 'success');
@@ -414,7 +450,7 @@ async function saveMovimiento() {
 }
 
 // ══════════════════════════════════
-// INFORME
+// INFORME POR PRODUCTO
 // ══════════════════════════════════
 function populateInformeSelect() {
   const sel     = document.getElementById('informe-select');
@@ -423,6 +459,8 @@ function populateInformeSelect() {
     cachedProducts.map(p =>
       `<option value="${p.id}"${p.id === current ? ' selected' : ''}>${p.nombre}${p.sku ? ' ('+p.sku+')' : ''}</option>`
     ).join('');
+  // Si ya había uno seleccionado, re-renderizar
+  if (current) renderInforme();
 }
 
 function renderInforme() {
@@ -433,12 +471,15 @@ function renderInforme() {
   document.getElementById('informe-resumen').classList.add('hidden');
   document.getElementById('informe-tabla').classList.add('hidden');
   document.getElementById('informe-empty').classList.remove('hidden');
-  document.getElementById('informe-empty').innerHTML = `<span class="empty-icon">📊</span><p>Seleccioná un producto para ver su historial</p>`;
+  document.getElementById('informe-empty').innerHTML =
+    `<span class="empty-icon">📊</span><p>Seleccioná un producto para ver su historial</p>`;
 
   if (!pid) return;
 
+  // Filtrar movimientos de este producto
   let movs = cachedMovements.filter(m => m.product_id === pid);
 
+  // Filtrar por fechas
   if (desde) {
     const d = new Date(desde + 'T00:00:00');
     movs = movs.filter(m => new Date(m.fecha_real || m.created_at) >= d);
@@ -448,9 +489,13 @@ function renderInforme() {
     movs = movs.filter(m => new Date(m.fecha_real || m.created_at) <= h);
   }
 
-  movs.sort((a, b) => new Date(b.fecha_real || b.created_at) - new Date(a.fecha_real || a.created_at));
+  // Ordenar por fecha desc
+  movs.sort((a, b) =>
+    new Date(b.fecha_real || b.created_at) - new Date(a.fecha_real || a.created_at)
+  );
 
-  const prod = cachedProducts.find(p => p.id === pid);
+  // Resumen
+  const prod          = cachedProducts.find(p => p.id === pid);
   const totalEntradas = movs.filter(m => m.tipo === 'entrada').reduce((a, m) => a + m.cantidad, 0);
   const totalSalidas  = movs.filter(m => m.tipo === 'salida').reduce((a, m) => a + m.cantidad, 0);
 
@@ -461,27 +506,26 @@ function renderInforme() {
   document.getElementById('informe-resumen').classList.remove('hidden');
 
   if (!movs.length) {
-    document.getElementById('informe-empty').innerHTML = `<span class="empty-icon">📭</span><p>No hay movimientos en el período seleccionado</p>`;
+    document.getElementById('informe-empty').innerHTML =
+      `<span class="empty-icon">📭</span><p>No hay movimientos en el período seleccionado</p>`;
     return;
   }
 
   document.getElementById('informe-empty').classList.add('hidden');
 
   document.getElementById('tbody-informe').innerHTML = movs.map(m => {
-    const dt    = new Date(m.fecha_real || m.created_at);
-    const fecha = dt.toLocaleDateString('es-AR', { day:'2-digit', month:'2-digit', year:'numeric' });
-    const hora  = dt.toLocaleTimeString('es-AR', { hour:'2-digit', minute:'2-digit' });
-    const bc    = m.tipo === 'entrada' ? 'mov-in' : m.tipo === 'salida' ? 'mov-out' : 'mov-adj';
-    const ic    = m.tipo === 'entrada' ? '✅' : m.tipo === 'salida' ? '📤' : '🔧';
-    const cd    = m.tipo === 'entrada' ? `+${m.cantidad}` : m.tipo === 'salida' ? `-${m.cantidad}` : `=${m.cantidad}`;
+    const fechaStr = m.fecha_real || m.created_at;
+    const bc = m.tipo === 'entrada' ? 'mov-in' : m.tipo === 'salida' ? 'mov-out' : 'mov-adj';
+    const ic = m.tipo === 'entrada' ? '✅' : m.tipo === 'salida' ? '📤' : '🔧';
+    const cd = m.tipo === 'entrada' ? `+${m.cantidad}` : m.tipo === 'salida' ? `-${m.cantidad}` : `=${m.cantidad}`;
     return `<tr>
-      <td style="white-space:nowrap;font-size:14px">${fecha}</td>
-      <td style="font-family:'JetBrains Mono',monospace;font-size:14px">${hora}</td>
+      <td style="white-space:nowrap;font-size:14px">${formatFecha(fechaStr)}</td>
+      <td style="font-family:'JetBrains Mono',monospace;font-size:14px">${formatHora(fechaStr)}</td>
       <td><span class="badge ${bc}">${ic} ${m.tipo}</span></td>
       <td style="font-family:'JetBrains Mono',monospace;font-weight:700;font-size:17px">${cd}</td>
       <td style="color:var(--text3)">${m.stock_prev}</td>
       <td style="font-weight:700">${m.stock_nuevo}</td>
-      <td style="font-size:14px;color:var(--text3)">${m.user_name || m.user_email}</td>
+      <td style="font-size:14px;color:var(--text3)">${m.user_name || m.user_email || ''}</td>
       <td style="font-size:14px;color:var(--text3)">${m.nota || ''}</td>
     </tr>`;
   }).join('');
@@ -494,12 +538,14 @@ function exportInformeExcel() {
   const desde = document.getElementById('informe-desde').value;
   const hasta = document.getElementById('informe-hasta').value;
   if (!pid) { showToast('Seleccioná un producto primero', 'error'); return; }
+
   const prod = cachedProducts.find(p => p.id === pid);
   let movs   = cachedMovements.filter(m => m.product_id === pid);
   if (desde) movs = movs.filter(m => new Date(m.fecha_real||m.created_at) >= new Date(desde+'T00:00:00'));
   if (hasta) movs = movs.filter(m => new Date(m.fecha_real||m.created_at) <= new Date(hasta+'T23:59:59'));
-  movs.sort((a,b) => new Date(b.fecha_real||b.created_at) - new Date(a.fecha_real||a.created_at));
-  const wb   = XLSX.utils.book_new();
+  movs.sort((a, b) => new Date(b.fecha_real||b.created_at) - new Date(a.fecha_real||a.created_at));
+
+  const wb  = XLSX.utils.book_new();
   const rows = [
     [`Informe — ${prod?.nombre||''}`],
     [`Período: ${desde||'inicio'} al ${hasta||'hoy'}`],
@@ -507,12 +553,20 @@ function exportInformeExcel() {
     [],
     ['Fecha','Hora','Tipo','Cantidad','Stock anterior','Stock nuevo','Usuario','Nota'],
     ...movs.map(m => {
-      const dt = new Date(m.fecha_real||m.created_at);
-      return [dt.toLocaleDateString('es-AR'), dt.toLocaleTimeString('es-AR',{hour:'2-digit',minute:'2-digit'}),
-        m.tipo, m.tipo==='entrada'?m.cantidad:m.tipo==='salida'?-m.cantidad:m.cantidad,
-        m.stock_prev, m.stock_nuevo, m.user_name||m.user_email, m.nota||''];
+      const fechaStr = m.fecha_real || m.created_at;
+      return [
+        formatFecha(fechaStr),
+        formatHora(fechaStr),
+        m.tipo,
+        m.tipo==='entrada' ? m.cantidad : m.tipo==='salida' ? -m.cantidad : m.cantidad,
+        m.stock_prev,
+        m.stock_nuevo,
+        m.user_name || m.user_email || '',
+        m.nota || ''
+      ];
     })
   ];
+
   const ws = XLSX.utils.aoa_to_sheet(rows);
   ws['!cols'] = [16,8,10,10,14,14,22,30].map(w=>({wch:w}));
   XLSX.utils.book_append_sheet(wb, ws, 'Informe');
@@ -526,25 +580,36 @@ function exportInformeExcel() {
 async function exportExcel() {
   showToast('Generando Excel...');
   const wb = XLSX.utils.book_new();
+
   const ws1 = XLSX.utils.aoa_to_sheet([
     ['Nombre','Categoría','Stock','Stock mínimo','Precio','Unidad','SKU','Proveedor','Estado','Valor en stock'],
-    ...cachedProducts.map(p => [p.nombre,p.categoria,p.stock,p.stock_minimo,p.precio,p.unidad,p.sku||'',p.proveedor||'',
-      getStatus(p)==='ok'?'Normal':getStatus(p)==='low'?'Stock bajo':'Sin stock',(p.stock*(p.precio||0)).toFixed(2)])
+    ...cachedProducts.map(p => [
+      p.nombre, p.categoria, p.stock, p.stock_minimo, p.precio,
+      p.unidad, p.sku||'', p.proveedor||'',
+      getStatus(p)==='ok'?'Normal':getStatus(p)==='low'?'Stock bajo':'Sin stock',
+      (p.stock*(p.precio||0)).toFixed(2)
+    ])
   ]);
   ws1['!cols'] = [24,14,8,12,10,10,12,22,12,14].map(w=>({wch:w}));
   XLSX.utils.book_append_sheet(wb, ws1, 'Inventario');
+
   if (cachedMovements.length) {
     const ws2 = XLSX.utils.aoa_to_sheet([
       ['Fecha','Hora','Producto','Tipo','Cantidad','Stock ant.','Stock nuevo','Usuario','Nota'],
       ...cachedMovements.map(m => {
-        const dt = new Date(m.fecha_real||m.created_at);
-        return [dt.toLocaleDateString('es-AR'),dt.toLocaleTimeString('es-AR',{hour:'2-digit',minute:'2-digit'}),
-          m.product_name,m.tipo,m.cantidad,m.stock_prev,m.stock_nuevo,m.user_name||m.user_email,m.nota||''];
+        const fechaStr = m.fecha_real || m.created_at;
+        return [
+          formatFecha(fechaStr), formatHora(fechaStr),
+          m.product_name, m.tipo, m.cantidad,
+          m.stock_prev, m.stock_nuevo,
+          m.user_name||m.user_email||'', m.nota||''
+        ];
       })
     ]);
     ws2['!cols'] = [14,8,24,10,10,12,12,20,30].map(w=>({wch:w}));
     XLSX.utils.book_append_sheet(wb, ws2, 'Movimientos');
   }
+
   XLSX.writeFile(wb, `inventario_${new Date().toISOString().slice(0,10)}.xlsx`);
   showToast('✅ Excel descargado', 'success');
 }
@@ -553,9 +618,12 @@ async function exportExcel() {
 // UI HELPERS
 // ══════════════════════════════════
 function switchTab(name, el) {
-  document.querySelectorAll('.tab').forEach(t => { t.classList.remove('active'); t.setAttribute('aria-selected','false'); });
+  document.querySelectorAll('.tab').forEach(t => {
+    t.classList.remove('active');
+    t.setAttribute('aria-selected', 'false');
+  });
   el.classList.add('active');
-  el.setAttribute('aria-selected','true');
+  el.setAttribute('aria-selected', 'true');
   document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
   document.getElementById('view-' + name).classList.add('active');
   if (name === 'informe') renderInforme();
@@ -575,7 +643,8 @@ function showToast(msg, type = '') {
 }
 
 function escHtml(str) {
-  return (str||'').replace(/'/g,"\\'").replace(/"/g,'&quot;');
+  return (str||'').replace(/'/g, "\\'").replace(/"/g, '&quot;');
 }
 
+// ── INICIO ──
 checkSession();
