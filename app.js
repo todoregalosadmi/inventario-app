@@ -624,8 +624,16 @@ function switchTab(name, el) {
   });
   el.classList.add('active');
   el.setAttribute('aria-selected', 'true');
-  document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
-  document.getElementById('view-' + name).classList.add('active');
+
+  document.querySelectorAll('.view').forEach(v => {
+    v.classList.remove('active');
+    v.classList.add('hidden');
+  });
+
+  const target = document.getElementById('view-' + name);
+  target.classList.remove('hidden');
+  target.classList.add('active');
+
   if (name === 'informe') renderInforme();
 }
 
