@@ -4,6 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <meta name="theme-color" content="#1a1f2e" />
+  <meta name="mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <meta name="apple-mobile-web-app-title" content="Inventario" />
@@ -59,6 +60,15 @@
     </nav>
 
     <main class="main">
+
+      <!-- SELECTOR DE DEPÓSITO -->
+      <div class="deposito-bar">
+        <span class="deposito-label">📦 Depósito:</span>
+        <div class="deposito-tabs" id="deposito-tabs"></div>
+        <button class="btn-outline btn-sm-dep" onclick="openDepositoModal()" title="Gestionar depósitos">⚙️ Gestionar</button>
+      </div>
+
+      <!-- METRICS -->
       <section class="metrics-grid">
         <div class="metric-card"><div class="metric-icon">📦</div><div class="metric-label">Total productos</div><div class="metric-value" id="m-total">—</div></div>
         <div class="metric-card"><div class="metric-icon">💰</div><div class="metric-label">Valor en stock</div><div class="metric-value" id="m-valor">—</div></div>
@@ -66,6 +76,7 @@
         <div class="metric-card danger"><div class="metric-icon">🚨</div><div class="metric-label">Sin stock</div><div class="metric-value" id="m-out">—</div></div>
       </section>
 
+      <!-- TOOLBAR -->
       <div class="toolbar">
         <div class="toolbar-left">
           <div class="search-wrap">
@@ -80,6 +91,7 @@
         </div>
       </div>
 
+      <!-- TABS -->
       <div class="tabs">
         <button class="tab active" onclick="switchTab('productos', this)">📋 Productos</button>
         <button class="tab" onclick="switchTab('alertas', this)">🔔 Alertas <span id="alert-badge" class="badge-tab hidden"></span></button>
@@ -159,6 +171,7 @@
           <p>Seleccioná un producto para ver su historial</p>
         </div>
       </div>
+
     </main>
   </div>
 
@@ -201,7 +214,7 @@
     </div>
   </div>
 
-  <!-- MODAL MOVIMIENTO — con fecha manual -->
+  <!-- MODAL MOVIMIENTO -->
   <div id="mov-modal" class="modal-overlay hidden" onclick="closeIfOverlay(event,'mov-modal')">
     <div class="modal modal-sm">
       <div class="modal-header">
@@ -228,6 +241,29 @@
       <div class="modal-footer">
         <button class="btn-outline" onclick="closeModal('mov-modal')">Cancelar</button>
         <button class="btn-primary" onclick="saveMovimiento()">Registrar</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL GESTIONAR DEPÓSITOS -->
+  <div id="deposito-modal" class="modal-overlay hidden" onclick="closeIfOverlay(event,'deposito-modal')">
+    <div class="modal modal-sm">
+      <div class="modal-header">
+        <span class="modal-title">Gestionar depósitos</span>
+        <button class="modal-close" onclick="closeModal('deposito-modal')">✕</button>
+      </div>
+      <div class="modal-body">
+        <div id="depositos-lista" style="margin-bottom:1rem"></div>
+        <div class="field">
+          <label for="nuevo-deposito">Agregar nuevo depósito</label>
+          <div style="display:flex;gap:8px">
+            <input type="text" id="nuevo-deposito" placeholder="Ej: Depósito 2, Sucursal Centro..." style="flex:1" />
+            <button class="btn-primary" onclick="agregarDeposito()">Agregar</button>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn-primary" onclick="closeModal('deposito-modal')">Listo</button>
       </div>
     </div>
   </div>
