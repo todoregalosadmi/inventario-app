@@ -5,10 +5,12 @@ const SUPABASE_KEY = 'sb_publishable_5DB4QScSv_f-3E4zq5Pxdg_2HuPahNv';
 const { createClient } = supabase;
 const db = createClient(SUPABASE_URL, SUPABASE_KEY);
 
-let currentUser     = null;
+let currentUser      = null;
 let pendingPhotoFile = null;
-let cachedProducts  = [];
-let cachedMovements = [];
+let cachedProducts   = [];
+let cachedMovements  = [];
+let depositos        = ['Depósito principal'];
+let depositoActivo   = 'Depósito principal';
 
 // ══════════════════════════════════
 // AUTH
@@ -43,9 +45,7 @@ async function doRegister() {
 
 async function doLogout() {
   await db.auth.signOut();
-  currentUser = null;
-  cachedProducts  = [];
-  cachedMovements = [];
+  currentUser = null; cachedProducts = []; cachedMovements = [];
   document.getElementById('app').classList.add('hidden');
   document.getElementById('auth-screen').classList.remove('hidden');
   showLogin();
@@ -86,28 +86,109 @@ function showAuthError(msg, isInfo = false) {
 function clearAuthError() { document.getElementById('auth-error').classList.add('hidden'); }
 
 // ══════════════════════════════════
-// CARGA PRINCIPAL — trae datos y renderiza todo
+// DEPÓSITOS
+// ══════════════════════════════════
+async function loadDepositos() {
+  // Obtener depósitos únicos de la base de datos
+  const { data } = await db.from('products').select('deposito');
+  if (data && data.length) {
+    const unicos = [...new Set(data.map(p => p.deposito).filter(Boolean))].sort();
+    if (unicos.length) depositos = unicos;
+  }
+  // Asegurarse que Depósito principal siempre está
+  if (!depositos.includes('Depósito principal')) {
+    depositos.unshift('Depósito principal');
+  }
+  renderDepositoTabs();
+}
+
+function renderDepositoTabs() {
+  const container = document.getElementById('deposito-tabs');
+  container.innerHTML = depositos.map(d => `
+    <button class="deposito-tab ${d === depositoActivo ? 'active' : ''}"
+      onclick="cambiarDeposito('${escHtml(d)}')">${d}</button>
+  `).join('');
+}
+
+function cambiarDeposito(nombre) {
+  depositoActivo = nombre;
+  renderDepositoTabs();
+  renderMetrics();
+  renderCatFilter();
+  renderProducts();
+  renderAlerts();
+  renderMovements();
+  populateInformeSelect();
+  // Si hay informe activo, re-renderizarlo
+  const pid = document.getElementById('informe-select').value;
+  if (pid) renderInforme();
+}
+
+function openDepositoModal() {
+  renderDepositosLista();
+  document.getElementById('nuevo-deposito').value = '';
+  document.getElementById('deposito-modal').classList.remove('hidden');
+}
+
+function renderDepositosLista() {
+  const el = document.getElementById('depositos-lista');
+  el.innerHTML = depositos.map(d => `
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 0;border-bottom:1px solid var(--border)">
+      <span style="font-weight:500;font-size:15px">${d}</span>
+      ${d !== 'Depósito principal'
+        ? `<button class="btn-icon danger" onclick="eliminarDeposito('${escHtml(d)}')" title="Eliminar">✕</button>`
+        : '<span style="font-size:12px;color:var(--text3)">Principal</span>'
+      }
+    </div>
+  `).join('');
+}
+
+async function agregarDeposito() {
+  const nombre = document.getElementById('nuevo-deposito').value.trim();
+  if (!nombre) { showToast('Escribí un nombre para el depósito', 'error'); return; }
+  if (depositos.includes(nombre)) { showToast('Ese depósito ya existe', 'error'); return; }
+  depositos.push(nombre);
+  depositos.sort();
+  if (!depositos.includes('Depósito principal')) depositos.unshift('Depósito principal');
+  document.getElementById('nuevo-deposito').value = '';
+  renderDepositosLista();
+  renderDepositoTabs();
+  showToast('✅ Depósito agregado');
+}
+
+async function eliminarDeposito(nombre) {
+  // Verificar si tiene productos
+  const prods = cachedProducts.filter(p => p.deposito === nombre);
+  if (prods.length > 0) {
+    if (!confirm(`El depósito "${nombre}" tiene ${prods.length} producto(s). Si lo eliminás, esos productos quedarán sin depósito asignado. ¿Continuás?`)) return;
+  } else {
+    if (!confirm(`¿Eliminar el depósito "${nombre}"?`)) return;
+  }
+  depositos = depositos.filter(d => d !== nombre);
+  if (depositoActivo === nombre) depositoActivo = 'Depósito principal';
+  renderDepositosLista();
+  renderDepositoTabs();
+  showToast('Depósito eliminado');
+}
+
+// ══════════════════════════════════
+// CARGA PRINCIPAL
 // ══════════════════════════════════
 async function loadAll() {
-  // Traer productos
   const { data: prods, error: e1 } = await db
-    .from('products')
-    .select('*')
-    .order('nombre', { ascending: true });
+    .from('products').select('*').order('nombre', { ascending: true });
   if (e1) { showToast('Error cargando productos: ' + e1.message, 'error'); return; }
   cachedProducts = prods || [];
 
-  // Traer movimientos
   const { data: movs, error: e2 } = await db
-    .from('movements')
-    .select('*')
+    .from('movements').select('*')
     .order('fecha_real', { ascending: false, nullsFirst: false })
     .order('created_at', { ascending: false })
     .limit(1000);
   if (e2) { showToast('Error cargando movimientos: ' + e2.message, 'error'); return; }
   cachedMovements = movs || [];
 
-  // Renderizar todo
+  await loadDepositos();
   renderMetrics();
   renderCatFilter();
   renderProducts();
@@ -117,47 +198,50 @@ async function loadAll() {
 }
 
 // ══════════════════════════════════
-// HELPERS DE ESTADO
+// HELPERS
 // ══════════════════════════════════
 function getStatus(p) {
   if (p.stock === 0) return 'out';
   if (p.stock_minimo > 0 && p.stock <= p.stock_minimo) return 'low';
   return 'ok';
 }
-
 function statusBadge(p) {
   const s = getStatus(p);
   if (s === 'out') return '<span class="badge badge-out">🚨 Sin stock</span>';
   if (s === 'low') return '<span class="badge badge-low">⚠️ Stock bajo</span>';
   return '<span class="badge badge-ok">✅ Normal</span>';
 }
-
-function formatFecha(isoStr) {
-  if (!isoStr) return '—';
-  const dt = new Date(isoStr);
-  return dt.toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit', year: 'numeric' });
+function formatFecha(iso) {
+  if (!iso) return '—';
+  return new Date(iso).toLocaleDateString('es-AR', { day:'2-digit', month:'2-digit', year:'numeric' });
+}
+function formatHora(iso) {
+  if (!iso) return '—';
+  return new Date(iso).toLocaleTimeString('es-AR', { hour:'2-digit', minute:'2-digit' });
 }
 
-function formatHora(isoStr) {
-  if (!isoStr) return '—';
-  const dt = new Date(isoStr);
-  return dt.toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' });
+// Productos del depósito activo
+function prodsActivos() {
+  return cachedProducts.filter(p => (p.deposito || 'Depósito principal') === depositoActivo);
+}
+// Movimientos del depósito activo
+function movsActivos() {
+  return cachedMovements.filter(m => (m.deposito || 'Depósito principal') === depositoActivo);
 }
 
 // ══════════════════════════════════
 // RENDER — métricas
 // ══════════════════════════════════
 function renderMetrics() {
-  const total = cachedProducts.length;
-  const valor = cachedProducts.reduce((a, p) => a + p.stock * (p.precio || 0), 0);
-  const low   = cachedProducts.filter(p => p.stock > 0 && p.stock_minimo > 0 && p.stock <= p.stock_minimo).length;
-  const out   = cachedProducts.filter(p => p.stock === 0).length;
-
+  const products = prodsActivos();
+  const total = products.length;
+  const valor = products.reduce((a, p) => a + p.stock * (p.precio || 0), 0);
+  const low   = products.filter(p => p.stock > 0 && p.stock_minimo > 0 && p.stock <= p.stock_minimo).length;
+  const out   = products.filter(p => p.stock === 0).length;
   document.getElementById('m-total').textContent = total;
-  document.getElementById('m-valor').textContent = '$' + valor.toLocaleString('es-AR', { minimumFractionDigits: 0, maximumFractionDigits: 0 });
+  document.getElementById('m-valor').textContent = '$' + valor.toLocaleString('es-AR', { minimumFractionDigits:0, maximumFractionDigits:0 });
   document.getElementById('m-low').textContent   = low;
   document.getElementById('m-out').textContent   = out;
-
   const badge = document.getElementById('alert-badge');
   const count = low + out;
   if (count > 0) { badge.textContent = count; badge.classList.remove('hidden'); }
@@ -165,34 +249,31 @@ function renderMetrics() {
 }
 
 // ══════════════════════════════════
-// RENDER — filtro de categorías
+// RENDER — filtro categorías
 // ══════════════════════════════════
 function renderCatFilter() {
   const sel     = document.getElementById('filterCat');
   const current = sel.value;
-  const cats    = [...new Set(cachedProducts.map(p => p.categoria).filter(Boolean))].sort();
+  const cats    = [...new Set(prodsActivos().map(p => p.categoria).filter(Boolean))].sort();
   sel.innerHTML = '<option value="">Todas las categorías</option>' +
     cats.map(c => `<option value="${c}"${c === current ? ' selected' : ''}>${c}</option>`).join('');
 }
 
 // ══════════════════════════════════
-// RENDER — tabla de productos
+// RENDER — productos
 // ══════════════════════════════════
 function renderProducts() {
   const q   = (document.getElementById('search').value || '').toLowerCase();
   const cat = document.getElementById('filterCat').value;
-
-  const filtered = cachedProducts.filter(p =>
+  const filtered = prodsActivos().filter(p =>
     (!q   || p.nombre.toLowerCase().includes(q) || (p.proveedor||'').toLowerCase().includes(q) || (p.sku||'').toLowerCase().includes(q)) &&
     (!cat || p.categoria === cat)
   );
-
   const tbody = document.getElementById('tbody-products');
   if (!filtered.length) {
-    tbody.innerHTML = `<tr><td colspan="8"><div class="empty-state"><span class="empty-icon">🔍</span>Sin resultados</div></td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="8"><div class="empty-state"><span class="empty-icon">🔍</span>Sin productos en este depósito. Usá "+ Producto" para agregar.</div></td></tr>`;
     return;
   }
-
   tbody.innerHTML = filtered.map(p => {
     const thumb = p.foto_url
       ? `<img src="${p.foto_url}" class="prod-thumb" alt="${p.nombre}" />`
@@ -225,13 +306,11 @@ function renderProducts() {
 // ══════════════════════════════════
 function renderAlerts() {
   const el     = document.getElementById('alerts-list');
-  const alerts = cachedProducts.filter(p => getStatus(p) !== 'ok');
-
+  const alerts = prodsActivos().filter(p => getStatus(p) !== 'ok');
   if (!alerts.length) {
-    el.innerHTML = `<div class="empty-state"><span class="empty-icon">✅</span>Sin alertas activas. ¡Todo el stock está en orden!</div>`;
+    el.innerHTML = `<div class="empty-state"><span class="empty-icon">✅</span>Sin alertas en ${depositoActivo}</div>`;
     return;
   }
-
   el.innerHTML = alerts.map(p => {
     const s   = getStatus(p);
     const msg = s === 'out'
@@ -248,17 +327,16 @@ function renderAlerts() {
 }
 
 // ══════════════════════════════════
-// RENDER — movimientos (pestaña general)
+// RENDER — movimientos
 // ══════════════════════════════════
 function renderMovements() {
   const tbody = document.getElementById('tbody-mov');
-
-  if (!cachedMovements || cachedMovements.length === 0) {
-    tbody.innerHTML = `<tr><td colspan="8"><div class="empty-state"><span class="empty-icon">📋</span>No hay movimientos registrados aún</div></td></tr>`;
+  const movs  = movsActivos();
+  if (!movs.length) {
+    tbody.innerHTML = `<tr><td colspan="8"><div class="empty-state"><span class="empty-icon">📋</span>No hay movimientos en ${depositoActivo}</div></td></tr>`;
     return;
   }
-
-  tbody.innerHTML = cachedMovements.map(m => {
+  tbody.innerHTML = movs.map(m => {
     const fechaStr = m.fecha_real || m.created_at;
     const bc = m.tipo === 'entrada' ? 'mov-in' : m.tipo === 'salida' ? 'mov-out' : 'mov-adj';
     const ic = m.tipo === 'entrada' ? '✅' : m.tipo === 'salida' ? '📤' : '🔧';
@@ -281,10 +359,8 @@ function renderMovements() {
 // ══════════════════════════════════
 function openProductModal() {
   document.getElementById('edit-id').value = '';
-  document.getElementById('product-modal-title').textContent = 'Agregar producto';
-  ['f-nombre','f-cat','f-prov','f-stock','f-min','f-precio','f-unidad','f-sku'].forEach(id => {
-    document.getElementById(id).value = '';
-  });
+  document.getElementById('product-modal-title').textContent = `Agregar producto — ${depositoActivo}`;
+  ['f-nombre','f-cat','f-prov','f-stock','f-min','f-precio','f-unidad','f-sku'].forEach(id => document.getElementById(id).value = '');
   pendingPhotoFile = null;
   document.getElementById('photo-preview').classList.add('hidden');
   document.getElementById('photo-placeholder').classList.remove('hidden');
@@ -343,7 +419,6 @@ async function uploadPhoto(file) {
 async function saveProduct() {
   const nombre = document.getElementById('f-nombre').value.trim();
   if (!nombre) { showToast('El nombre es requerido', 'error'); return; }
-
   const editId = document.getElementById('edit-id').value;
   let foto_url = null;
   if (pendingPhotoFile) {
@@ -351,7 +426,6 @@ async function saveProduct() {
   } else if (editId) {
     foto_url = cachedProducts.find(p => p.id === editId)?.foto_url || null;
   }
-
   const payload = {
     nombre,
     categoria:    document.getElementById('f-cat').value.trim()    || 'General',
@@ -362,9 +436,9 @@ async function saveProduct() {
     unidad:       document.getElementById('f-unidad').value.trim()  || 'unidad',
     sku:          document.getElementById('f-sku').value.trim()      || null,
     foto_url,
+    deposito:     depositoActivo,
     updated_by:   currentUser.email,
   };
-
   if (editId) {
     const { error } = await db.from('products').update(payload).eq('id', editId);
     if (error) { showToast('Error: ' + error.message, 'error'); return; }
@@ -395,13 +469,9 @@ function openMovModal(pid, nombre) {
   document.getElementById('mov-cant').value              = '';
   document.getElementById('mov-nota').value              = '';
   document.getElementById('mov-tipo').value              = 'entrada';
-
-  // Fecha/hora actual como default
   const now = new Date();
   const pad = n => String(n).padStart(2, '0');
-  const dt  = `${now.getFullYear()}-${pad(now.getMonth()+1)}-${pad(now.getDate())}T${pad(now.getHours())}:${pad(now.getMinutes())}`;
-  document.getElementById('mov-fecha').value = dt;
-
+  document.getElementById('mov-fecha').value = `${now.getFullYear()}-${pad(now.getMonth()+1)}-${pad(now.getDate())}T${pad(now.getHours())}:${pad(now.getMinutes())}`;
   document.getElementById('mov-modal').classList.remove('hidden');
   setTimeout(() => document.getElementById('mov-cant').focus(), 100);
 }
@@ -412,54 +482,44 @@ async function saveMovimiento() {
   const cant     = parseInt(document.getElementById('mov-cant').value);
   const nota     = document.getElementById('mov-nota').value.trim();
   const fechaVal = document.getElementById('mov-fecha').value;
-
   if (!cant || cant <= 0) { showToast('Ingresá una cantidad válida', 'error'); return; }
-  if (!fechaVal)          { showToast('La fecha es requerida', 'error');       return; }
-
+  if (!fechaVal)          { showToast('La fecha es requerida', 'error'); return; }
   const p = cachedProducts.find(x => x.id === pid);
   if (!p) return;
-
   const prev = p.stock;
   let nuevo;
   if      (tipo === 'entrada') nuevo = prev + cant;
   else if (tipo === 'salida')  nuevo = Math.max(0, prev - cant);
   else                         nuevo = cant;
-
   const { error: pErr } = await db.from('products')
-    .update({ stock: nuevo, updated_by: currentUser.email })
-    .eq('id', pid);
+    .update({ stock: nuevo, updated_by: currentUser.email }).eq('id', pid);
   if (pErr) { showToast('Error actualizando stock: ' + pErr.message, 'error'); return; }
-
   const { error: mErr } = await db.from('movements').insert({
     product_id:   pid,
     product_name: p.nombre,
-    tipo,
-    cantidad:     cant,
-    stock_prev:   prev,
-    stock_nuevo:  nuevo,
+    tipo, cantidad: cant, stock_prev: prev, stock_nuevo: nuevo,
     nota:         nota || null,
     fecha_real:   new Date(fechaVal).toISOString(),
+    deposito:     depositoActivo,
     user_email:   currentUser.email,
     user_name:    currentUser.user_metadata?.name || currentUser.email,
   });
   if (mErr) { showToast('Error guardando movimiento: ' + mErr.message, 'error'); return; }
-
   closeModal('mov-modal');
   showToast('✅ Movimiento registrado', 'success');
   await loadAll();
 }
 
 // ══════════════════════════════════
-// INFORME POR PRODUCTO
+// INFORME
 // ══════════════════════════════════
 function populateInformeSelect() {
   const sel     = document.getElementById('informe-select');
   const current = sel.value;
   sel.innerHTML = '<option value="">— Elegí un producto —</option>' +
-    cachedProducts.map(p =>
+    prodsActivos().map(p =>
       `<option value="${p.id}"${p.id === current ? ' selected' : ''}>${p.nombre}${p.sku ? ' ('+p.sku+')' : ''}</option>`
     ).join('');
-  // Si ya había uno seleccionado, re-renderizar
   if (current) renderInforme();
 }
 
@@ -476,25 +536,11 @@ function renderInforme() {
 
   if (!pid) return;
 
-  // Filtrar movimientos de este producto
-  let movs = cachedMovements.filter(m => m.product_id === pid);
+  let movs = movsActivos().filter(m => m.product_id === pid);
+  if (desde) movs = movs.filter(m => new Date(m.fecha_real||m.created_at) >= new Date(desde+'T00:00:00'));
+  if (hasta) movs = movs.filter(m => new Date(m.fecha_real||m.created_at) <= new Date(hasta+'T23:59:59'));
+  movs.sort((a, b) => new Date(b.fecha_real||b.created_at) - new Date(a.fecha_real||a.created_at));
 
-  // Filtrar por fechas
-  if (desde) {
-    const d = new Date(desde + 'T00:00:00');
-    movs = movs.filter(m => new Date(m.fecha_real || m.created_at) >= d);
-  }
-  if (hasta) {
-    const h = new Date(hasta + 'T23:59:59');
-    movs = movs.filter(m => new Date(m.fecha_real || m.created_at) <= h);
-  }
-
-  // Ordenar por fecha desc
-  movs.sort((a, b) =>
-    new Date(b.fecha_real || b.created_at) - new Date(a.fecha_real || a.created_at)
-  );
-
-  // Resumen
   const prod          = cachedProducts.find(p => p.id === pid);
   const totalEntradas = movs.filter(m => m.tipo === 'entrada').reduce((a, m) => a + m.cantidad, 0);
   const totalSalidas  = movs.filter(m => m.tipo === 'salida').reduce((a, m) => a + m.cantidad, 0);
@@ -512,7 +558,6 @@ function renderInforme() {
   }
 
   document.getElementById('informe-empty').classList.add('hidden');
-
   document.getElementById('tbody-informe').innerHTML = movs.map(m => {
     const fechaStr = m.fecha_real || m.created_at;
     const bc = m.tipo === 'entrada' ? 'mov-in' : m.tipo === 'salida' ? 'mov-out' : 'mov-adj';
@@ -525,11 +570,10 @@ function renderInforme() {
       <td style="font-family:'JetBrains Mono',monospace;font-weight:700;font-size:17px">${cd}</td>
       <td style="color:var(--text3)">${m.stock_prev}</td>
       <td style="font-weight:700">${m.stock_nuevo}</td>
-      <td style="font-size:14px;color:var(--text3)">${m.user_name || m.user_email || ''}</td>
-      <td style="font-size:14px;color:var(--text3)">${m.nota || ''}</td>
+      <td style="font-size:14px;color:var(--text3)">${m.user_name||m.user_email||''}</td>
+      <td style="font-size:14px;color:var(--text3)">${m.nota||''}</td>
     </tr>`;
   }).join('');
-
   document.getElementById('informe-tabla').classList.remove('hidden');
 }
 
@@ -538,35 +582,25 @@ function exportInformeExcel() {
   const desde = document.getElementById('informe-desde').value;
   const hasta = document.getElementById('informe-hasta').value;
   if (!pid) { showToast('Seleccioná un producto primero', 'error'); return; }
-
   const prod = cachedProducts.find(p => p.id === pid);
-  let movs   = cachedMovements.filter(m => m.product_id === pid);
+  let movs   = movsActivos().filter(m => m.product_id === pid);
   if (desde) movs = movs.filter(m => new Date(m.fecha_real||m.created_at) >= new Date(desde+'T00:00:00'));
   if (hasta) movs = movs.filter(m => new Date(m.fecha_real||m.created_at) <= new Date(hasta+'T23:59:59'));
-  movs.sort((a, b) => new Date(b.fecha_real||b.created_at) - new Date(a.fecha_real||a.created_at));
-
+  movs.sort((a,b) => new Date(b.fecha_real||b.created_at) - new Date(a.fecha_real||a.created_at));
   const wb  = XLSX.utils.book_new();
   const rows = [
-    [`Informe — ${prod?.nombre||''}`],
+    [`Informe — ${prod?.nombre||''} — ${depositoActivo}`],
     [`Período: ${desde||'inicio'} al ${hasta||'hoy'}`],
     [`Stock actual: ${prod?.stock} ${prod?.unidad||''}`],
     [],
     ['Fecha','Hora','Tipo','Cantidad','Stock anterior','Stock nuevo','Usuario','Nota'],
     ...movs.map(m => {
-      const fechaStr = m.fecha_real || m.created_at;
-      return [
-        formatFecha(fechaStr),
-        formatHora(fechaStr),
-        m.tipo,
-        m.tipo==='entrada' ? m.cantidad : m.tipo==='salida' ? -m.cantidad : m.cantidad,
-        m.stock_prev,
-        m.stock_nuevo,
-        m.user_name || m.user_email || '',
-        m.nota || ''
-      ];
+      const fechaStr = m.fecha_real||m.created_at;
+      return [formatFecha(fechaStr), formatHora(fechaStr), m.tipo,
+        m.tipo==='entrada'?m.cantidad:m.tipo==='salida'?-m.cantidad:m.cantidad,
+        m.stock_prev, m.stock_nuevo, m.user_name||m.user_email||'', m.nota||''];
     })
   ];
-
   const ws = XLSX.utils.aoa_to_sheet(rows);
   ws['!cols'] = [16,8,10,10,14,14,22,30].map(w=>({wch:w}));
   XLSX.utils.book_append_sheet(wb, ws, 'Informe');
@@ -580,37 +614,29 @@ function exportInformeExcel() {
 async function exportExcel() {
   showToast('Generando Excel...');
   const wb = XLSX.utils.book_new();
-
   const ws1 = XLSX.utils.aoa_to_sheet([
-    ['Nombre','Categoría','Stock','Stock mínimo','Precio','Unidad','SKU','Proveedor','Estado','Valor en stock'],
-    ...cachedProducts.map(p => [
-      p.nombre, p.categoria, p.stock, p.stock_minimo, p.precio,
-      p.unidad, p.sku||'', p.proveedor||'',
+    ['Depósito','Nombre','Categoría','Stock','Stock mínimo','Precio','Unidad','SKU','Proveedor','Estado','Valor en stock'],
+    ...prodsActivos().map(p => [p.deposito||'Principal', p.nombre, p.categoria, p.stock, p.stock_minimo,
+      p.precio, p.unidad, p.sku||'', p.proveedor||'',
       getStatus(p)==='ok'?'Normal':getStatus(p)==='low'?'Stock bajo':'Sin stock',
-      (p.stock*(p.precio||0)).toFixed(2)
-    ])
+      (p.stock*(p.precio||0)).toFixed(2)])
   ]);
-  ws1['!cols'] = [24,14,8,12,10,10,12,22,12,14].map(w=>({wch:w}));
+  ws1['!cols'] = [18,24,14,8,12,10,10,12,22,12,14].map(w=>({wch:w}));
   XLSX.utils.book_append_sheet(wb, ws1, 'Inventario');
-
-  if (cachedMovements.length) {
+  if (movsActivos().length) {
     const ws2 = XLSX.utils.aoa_to_sheet([
-      ['Fecha','Hora','Producto','Tipo','Cantidad','Stock ant.','Stock nuevo','Usuario','Nota'],
-      ...cachedMovements.map(m => {
-        const fechaStr = m.fecha_real || m.created_at;
-        return [
-          formatFecha(fechaStr), formatHora(fechaStr),
-          m.product_name, m.tipo, m.cantidad,
-          m.stock_prev, m.stock_nuevo,
-          m.user_name||m.user_email||'', m.nota||''
-        ];
+      ['Fecha','Hora','Depósito','Producto','Tipo','Cantidad','Stock ant.','Stock nuevo','Usuario','Nota'],
+      ...movsActivos().map(m => {
+        const fechaStr = m.fecha_real||m.created_at;
+        return [formatFecha(fechaStr), formatHora(fechaStr), m.deposito||'Principal',
+          m.product_name, m.tipo, m.cantidad, m.stock_prev, m.stock_nuevo,
+          m.user_name||m.user_email||'', m.nota||''];
       })
     ]);
-    ws2['!cols'] = [14,8,24,10,10,12,12,20,30].map(w=>({wch:w}));
+    ws2['!cols'] = [14,8,18,24,10,10,12,12,20,30].map(w=>({wch:w}));
     XLSX.utils.book_append_sheet(wb, ws2, 'Movimientos');
   }
-
-  XLSX.writeFile(wb, `inventario_${new Date().toISOString().slice(0,10)}.xlsx`);
+  XLSX.writeFile(wb, `inventario_${depositoActivo.replace(/\s+/g,'_')}_${new Date().toISOString().slice(0,10)}.xlsx`);
   showToast('✅ Excel descargado', 'success');
 }
 
@@ -618,22 +644,11 @@ async function exportExcel() {
 // UI HELPERS
 // ══════════════════════════════════
 function switchTab(name, el) {
-  document.querySelectorAll('.tab').forEach(t => {
-    t.classList.remove('active');
-    t.setAttribute('aria-selected', 'false');
-  });
-  el.classList.add('active');
-  el.setAttribute('aria-selected', 'true');
-
-  document.querySelectorAll('.view').forEach(v => {
-    v.classList.remove('active');
-    v.classList.add('hidden');
-  });
-
+  document.querySelectorAll('.tab').forEach(t => { t.classList.remove('active'); t.setAttribute('aria-selected','false'); });
+  el.classList.add('active'); el.setAttribute('aria-selected','true');
+  document.querySelectorAll('.view').forEach(v => { v.classList.remove('active'); v.classList.add('hidden'); });
   const target = document.getElementById('view-' + name);
-  target.classList.remove('hidden');
-  target.classList.add('active');
-
+  target.classList.remove('hidden'); target.classList.add('active');
   if (name === 'informe') renderInforme();
 }
 
@@ -643,16 +658,11 @@ function closeIfOverlay(e, id) { if (e.target.id === id) closeModal(id); }
 let toastTimer = null;
 function showToast(msg, type = '') {
   const el = document.getElementById('toast');
-  el.textContent = msg;
-  el.className   = `toast ${type}`;
+  el.textContent = msg; el.className = `toast ${type}`;
   el.classList.remove('hidden');
   clearTimeout(toastTimer);
   toastTimer = setTimeout(() => el.classList.add('hidden'), 3500);
 }
+function escHtml(str) { return (str||'').replace(/'/g,"\\'").replace(/"/g,'&quot;'); }
 
-function escHtml(str) {
-  return (str||'').replace(/'/g, "\\'").replace(/"/g, '&quot;');
-}
-
-// ── INICIO ──
 checkSession();
