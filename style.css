@@ -715,3 +715,49 @@ tbody td {
 
   .toast { left: 1rem; right: 1rem; bottom: 1rem; max-width: 100%; }
 }
+
+/* ── DEPÓSITOS ── */
+.deposito-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 1.5rem;
+  padding: 12px 16px;
+  background: var(--surface);
+  border: 2px solid var(--border);
+  border-radius: var(--radius);
+  flex-wrap: wrap;
+}
+.deposito-label {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text2);
+  white-space: nowrap;
+}
+.deposito-tabs {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  flex: 1;
+}
+.deposito-tab {
+  padding: 7px 16px;
+  font-size: 14px;
+  font-weight: 500;
+  font-family: 'Outfit', sans-serif;
+  background: var(--surface2);
+  color: var(--text2);
+  border: 2px solid var(--border2);
+  border-radius: 99px;
+  cursor: pointer;
+  transition: all 0.15s;
+  white-space: nowrap;
+}
+.deposito-tab:hover { border-color: var(--accent); color: var(--text); }
+.deposito-tab.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+.btn-sm-dep {
+  padding: 7px 14px;
+  font-size: 13px;
+  min-height: 38px;
+  white-space: nowrap;
+}
